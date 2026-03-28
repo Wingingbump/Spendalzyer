@@ -1,0 +1,205 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Dark mode (default) */
+  --color-bg: #141418;
+  --color-surface: #1c1c20;
+  --color-surface-raise: #242428;
+  --color-border: #2e2e34;
+  --color-text-primary: #e8e6e0;
+  --color-text-secondary: #888890;
+  --color-text-muted: #52525a;
+  --color-positive: #5abf8a;
+  --color-negative: #e86060;
+  --color-accent: #c8ff00;
+}
+
+.light {
+  --color-bg: #f5f3ef;
+  --color-surface: #edeae5;
+  --color-surface-raise: #e4e1db;
+  --color-border: #d5d0c8;
+  --color-text-primary: #1c1a16;
+  --color-text-secondary: #6b6560;
+  --color-text-muted: #9c9890;
+  --color-positive: #2d8a5e;
+  --color-negative: #c93535;
+  --color-accent: #5a8f00;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text-primary);
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}
+
+/* Custom select styling */
+select {
+  background-color: var(--color-surface-raise);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888890' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 28px;
+}
+
+select:focus {
+  border-color: var(--color-accent);
+}
+
+input[type="text"],
+input[type="password"],
+input[type="number"],
+input[type="search"] {
+  background-color: var(--color-surface-raise);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  outline: none;
+}
+
+input[type="text"]:focus,
+input[type="password"]:focus,
+input[type="number"]:focus,
+input[type="search"]:focus {
+  border-color: var(--color-accent);
+}
+
+input[type="checkbox"] {
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+
+/* Table styles */
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+th {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 13px;
+  color: var(--color-text-primary);
+}
+
+tr:last-child td {
+  border-bottom: none;
+}
+
+tr:hover td {
+  background-color: var(--color-surface-raise);
+}
+
+/* Editable cell */
+.editable-cell input,
+.editable-cell select {
+  width: 100%;
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: 1px dashed var(--color-border);
+  border-radius: 0;
+  padding: 2px 6px;
+  font-size: 13px;
+  color: var(--color-text-primary);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, border-radius 0.15s;
+}
+
+.editable-cell:hover input,
+.editable-cell:hover select {
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-surface-raise);
+}
+
+.editable-cell input:focus,
+.editable-cell select:focus {
+  background-color: var(--color-surface-raise);
+  border: 1px solid var(--color-accent);
+  border-radius: 4px;
+  outline: none;
+  cursor: text;
+}
+
+/* Animation */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in {
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.spinner {
+  animation: spin 0.8s linear infinite;
+}
+
+/* Skeleton loading */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--color-surface) 25%, var(--color-surface-raise) 50%, var(--color-surface) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 4px;
+}

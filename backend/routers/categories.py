@@ -1,0 +1,76 @@
+from typing import Optional
+from urllib.parse import unquote
+
+import pandas as pd
+from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
+
+from backend.dependencies import apply_filters, get_current_user
+from core import insights as ins
+from core.db import load_category_map, upsert_category_mapping, delete_category_mapping
+
+router = APIRouter(prefix="/categories", tags=["categories"])
+
+
+def _df_to_records(df: pd.DataFrame) -> list:
+    cleaned = df.where(pd.notna(df), None)
+    records = cleaned.to_dict(orient="records")
+    for row in records:
+        for k, v in row.items():
+            if hasattr(v, "isoformat"):
+                row[k] = v.isoformat()
+    return records
+
+
+class MappingBody(BaseModel):
+    external_category: str
+    internal_category: str
+
+
+@router.get("/mappings")
+def get_mappings(current_user: dict = Depends(get_current_user)):
+    mapping = load_category_map(current_user["id"])
+    return [
+        {"external_category": k, "internal_category": v}
+        for k, v in mapping.items()
+    ]
+
+
+@router.post("/mappings")
+def post_mapping(body: MappingBody, current_user: dict = Depends(get_current_user)):
+    upsert_category_mapping(current_user["id"], body.external_category, body.internal_category)
+    return {"ok": True}
+
+
+@router.delete("/mappings/{external_category}")
+def remove_mapping(external_category: str, current_user: dict = Depends(get_current_user)):
+    delete_category_mapping(current_user["id"], unquote(external_category))
+    return {"ok": True}
+
+
+@router.get("")
+def list_categories(
+    range: str = Query("30d"),
+    institution: str = Query("all"),
+    account: str = Query("all"),
+    current_user: dict = Depends(get_current_user),
+):
+    df = ins.load_data(current_user["id"])
+    df = apply_filters(df, range, institution, account)
+    result = ins.spending_by_category(df)
+    return _df_to_records(result)
+
+
+@router.get("/{category_name}")
+def category_detail(
+    category_name: str,
+    range: str = Query("30d"),
+    institution: str = Query("all"),
+    account: str = Query("all"),
+    current_user: dict = Depends(get_current_user),
+):
+    category = unquote(category_name)
+    df = ins.load_data(current_user["id"])
+    df = apply_filters(df, range, institution, account)
+    result = ins.drill_down_category(df, category)
+    return _df_to_records(result)

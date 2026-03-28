@@ -1,0 +1,46 @@
+# Secrets — never commit
+.env
+*.env
+.env.*
+!.env.example
+!**/.env.example
+
+# Database
+data/
+*.db
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Logs
+*.log
+pull.log
+
+# Claude / MCP (may contain API tokens)
+.claude/
+.mcp.json
