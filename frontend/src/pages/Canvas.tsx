@@ -375,7 +375,7 @@ function WidgetModal({
               {!isEdit && <button onClick={() => setStep('type')} style={{ fontSize: 12, color: 'var(--color-accent)' }}>← Change type</button>}
               <div>
                 <label style={{ fontSize: 11, color: 'var(--color-text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 6 }}>Title</label>
-                <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={TYPE_META[type].label} style={{ fontSize: 13, width: '100%' }} autoFocus />
+                <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={TYPE_META[type].label} style={{ fontSize: 13, width: '100%' }} autoFocus />
               </div>
               {type !== 'sankey' && type !== 'line' && (
                 <div>
@@ -400,7 +400,7 @@ function WidgetModal({
                 </div>
               )}
               <div className="flex gap-2 pt-2">
-                <button onClick={handleSave} className="flex-1 rounded-lg font-medium" style={{ background: 'var(--color-accent)', color: '#000', padding: '8px 0', fontSize: 13 }}>
+                <button onClick={handleSave} className="flex-1 rounded-lg font-medium" style={{ background: 'var(--color-accent)', color: '#fff', padding: '8px 0', fontSize: 13 }}>
                   {isEdit ? 'Update' : 'Add to canvas'}
                 </button>
                 <button onClick={onClose} className="rounded-lg" style={{ background: 'var(--color-surface-raise)', color: 'var(--color-text-muted)', padding: '8px 16px', fontSize: 13, border: '1px solid var(--color-border)' }}>
@@ -435,6 +435,7 @@ function NameEditor({ value, onChange }: { value: string; onChange: (v: string) 
     return (
       <input
         ref={inputRef}
+        type="text"
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
@@ -534,9 +535,10 @@ export default function Canvas() {
   const saveMutation = useMutation({
     mutationFn: (state: { id: number; name: string; layout: CanvasLayoutItem[]; widgets: Record<string, CanvasWidget> }) =>
       canvasApi.save(state.id, { name: state.name, layout: state.layout, widgets: state.widgets }),
-    onSuccess: () => {
+    onSuccess: (_, state) => {
       setSaveState('saved')
       qc.invalidateQueries({ queryKey: ['canvas-list'] })
+      qc.setQueryData(['canvas', state.id], { id: state.id, name: state.name, layout: state.layout, widgets: state.widgets })
       setTimeout(() => setSaveState('idle'), 2000)
     },
     onError: () => {
@@ -644,7 +646,7 @@ export default function Canvas() {
             onClick={() => setModal('add')}
             disabled={activeId === null}
             className="flex items-center gap-2 rounded-lg font-medium"
-            style={{ background: 'var(--color-accent)', color: '#000', padding: '7px 14px', fontSize: 13, opacity: activeId === null ? 0.5 : 1 }}
+            style={{ background: 'var(--color-accent)', color: '#fff', padding: '7px 14px', fontSize: 13, opacity: activeId === null ? 0.5 : 1 }}
           >
             <Plus size={14} />
             Add widget
@@ -667,7 +669,7 @@ export default function Canvas() {
           <button
             onClick={() => createMutation.mutate('My Canvas')}
             className="flex items-center gap-2 rounded-lg font-medium"
-            style={{ background: 'var(--color-accent)', color: '#000', padding: '8px 16px', fontSize: 13 }}
+            style={{ background: 'var(--color-accent)', color: '#fff', padding: '8px 16px', fontSize: 13 }}
           >
             <Plus size={14} /> Create canvas
           </button>
@@ -679,7 +681,7 @@ export default function Canvas() {
           <BarChart2 size={32} style={{ marginBottom: 12, opacity: 0.4 }} />
           <p style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>This canvas is empty</p>
           <p style={{ fontSize: 12, marginBottom: 16 }}>Add widgets to start building your custom view</p>
-          <button onClick={() => setModal('add')} className="flex items-center gap-2 rounded-lg font-medium" style={{ background: 'var(--color-accent)', color: '#000', padding: '8px 16px', fontSize: 13 }}>
+          <button onClick={() => setModal('add')} className="flex items-center gap-2 rounded-lg font-medium" style={{ background: 'var(--color-accent)', color: '#fff', padding: '8px 16px', fontSize: 13 }}>
             <Plus size={14} /> Add first widget
           </button>
         </div>

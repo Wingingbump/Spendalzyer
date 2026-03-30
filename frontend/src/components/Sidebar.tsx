@@ -124,8 +124,9 @@ export default function Sidebar() {
               }`
             }
             style={({ isActive }) => ({
-              background: isActive ? 'var(--color-surface-raise)' : 'transparent',
-              color: isActive ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+              background: isActive ? 'rgba(26, 86, 219, 0.1)' : 'transparent',
+              color: isActive ? 'var(--color-accent-text)' : 'var(--color-text-secondary)',
+              borderRight: isActive ? '2px solid var(--color-accent)' : '2px solid transparent',
             })}
           >
             <Icon size={15} strokeWidth={1.8} />
@@ -239,7 +240,7 @@ export default function Sidebar() {
           className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm font-medium transition-opacity disabled:opacity-50"
           style={{
             background: 'var(--color-accent)',
-            color: '#000',
+            color: '#fff',
             fontSize: 12,
           }}
         >
@@ -300,7 +301,7 @@ export default function Sidebar() {
         >
           <div
             className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
-            style={{ background: 'var(--color-accent)', color: '#000' }}
+            style={{ background: 'var(--color-accent)', color: '#fff' }}
           >
             {user?.username?.[0]?.toUpperCase() ?? 'U'}
           </div>

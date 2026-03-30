@@ -1,8 +1,13 @@
-import React from 'react'
+import React, { useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import RightPanel from './RightPanel'
+import { PANEL_WIDTH } from './RightPanel'
+import { PanelContext } from '../context/PanelContext'
 import { useAuth } from '../context/AuthContext'
 import { useIdleTimeout } from '../hooks/useIdleTimeout'
+
+const PANEL_HIDDEN_ROUTES = ['/settings', '/login']
 
 interface LayoutProps {
   children: React.ReactNode
@@ -11,31 +16,44 @@ interface LayoutProps {
 export default function Layout({ children }: LayoutProps) {
   const { logout } = useAuth()
   const { showWarning, secondsLeft, stayActive } = useIdleTimeout(logout)
+  const location = useLocation()
+  const [panelOpen, setPanelOpen] = useState(() => {
+    try { return localStorage.getItem('rhs-panel-open') !== 'false' } catch { return true }
+  })
+  const effectivePanelOpen = panelOpen && !PANEL_HIDDEN_ROUTES.includes(location.pathname)
+
+  const handleToggle = () => {
+    setPanelOpen((o) => {
+      const next = !o
+      try { localStorage.setItem('rhs-panel-open', String(next)) } catch {}
+      return next
+    })
+  }
 
   return (
-    <div className="flex min-h-screen" style={{ background: 'var(--color-bg)' }}>
+    <PanelContext.Provider value={{ panelOpen: effectivePanelOpen }}>
+    <div className="flex min-h-screen" style={{ background: 'var(--color-bg)', pointerEvents: showWarning ? 'none' : 'auto' }}>
       <Sidebar />
       <main
         className="flex-1 overflow-auto"
         style={{
           marginLeft: 220,
-          marginRight: 300,
+          marginRight: effectivePanelOpen ? PANEL_WIDTH : 0,
           minHeight: '100vh',
           filter: showWarning ? 'blur(6px)' : 'none',
-          transition: 'filter 0.3s ease',
-          pointerEvents: showWarning ? 'none' : 'auto',
+          transition: 'margin-right 0.25s ease, filter 0.3s ease',
         }}
       >
         <div className="p-6">
           {children}
         </div>
       </main>
-      <RightPanel />
+      <RightPanel isOpen={effectivePanelOpen} onToggle={handleToggle} />
 
       {showWarning && (
         <div
           className="fixed inset-0 flex items-center justify-center"
-          style={{ zIndex: 100, background: 'rgba(0,0,0,0.4)' }}
+          style={{ zIndex: 200, background: 'rgba(0,0,0,0.4)', pointerEvents: 'auto' }}
         >
           <div
             className="rounded-2xl p-8 flex flex-col items-center"
@@ -100,7 +118,7 @@ export default function Layout({ children }: LayoutProps) {
                 className="flex-1 py-2 rounded-lg font-semibold"
                 style={{
                   background: 'var(--color-accent)',
-                  color: '#000',
+                  color: '#fff',
                   fontSize: 13,
                   cursor: 'pointer',
                   border: 'none',
@@ -113,5 +131,6 @@ export default function Layout({ children }: LayoutProps) {
         </div>
       )}
     </div>
+    </PanelContext.Provider>
   )
 }

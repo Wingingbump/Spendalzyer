@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Trash2, Plus, Sun, Moon, CreditCard, Shield, Palette, Tag, Pencil, AlertTriangle } from 'lucide-react'
+import { Trash2, Plus, Sun, Moon, CreditCard, Shield, Palette, Tag, Pencil, AlertTriangle, UserCircle } from 'lucide-react'
 import { accountsApi, plaidApi, settingsApi, categoriesApi } from '../lib/api'
 import { useTheme } from '../context/ThemeContext'
 import { useAuth } from '../context/AuthContext'
@@ -15,6 +15,15 @@ const CATEGORIES = [
   'Bills & Utilities', 'Health & Fitness', 'Travel', 'Personal Care',
   'Home', 'Education', 'Business Services', 'Income', 'Transfer', 'Other',
 ]
+
+// Profile schema
+const profileSchema = z.object({
+  first_name: z.string().min(1, 'First name is required'),
+  last_name: z.string().min(1, 'Last name is required'),
+  phone: z.string().min(7, 'Enter a valid phone number'),
+})
+
+type ProfileFormData = z.infer<typeof profileSchema>
 
 // Password change schema
 const passwordSchema = z
@@ -52,6 +61,69 @@ export default function Settings() {
   const { user, logout } = useAuth()
   const qc = useQueryClient()
   const plaidScriptLoaded = useRef(false)
+
+  // ── Profile ─────────────────────────────────────────────────────────────────
+  const { data: profile, isLoading: loadingProfile } = useQuery({
+    queryKey: ['profile'],
+    queryFn: () => settingsApi.getProfile(),
+  })
+
+  const [profileSuccess, setProfileSuccess] = useState(false)
+  const [profileError, setProfileError] = useState('')
+  const [avatarUploading, setAvatarUploading] = useState(false)
+  const avatarInputRef = useRef<HTMLInputElement>(null)
+
+  const {
+    register: registerProfile,
+    handleSubmit: handleProfileSubmit,
+    formState: { errors: profileErrors, isSubmitting: profileSubmitting },
+  } = useForm<ProfileFormData>({
+    resolver: zodResolver(profileSchema),
+    values: profile ? { first_name: profile.first_name, last_name: profile.last_name, phone: profile.phone } : undefined,
+  })
+
+  const updateProfileMutation = useMutation({
+    mutationFn: ({ first_name, last_name, phone }: ProfileFormData) => settingsApi.updateProfile(first_name, last_name, phone),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['profile'] })
+      setProfileSuccess(true)
+      setTimeout(() => setProfileSuccess(false), 2000)
+    },
+    onError: (err: unknown) => {
+      const e = err as { response?: { data?: { detail?: string } } }
+      setProfileError(e.response?.data?.detail || 'Failed to update profile')
+    },
+  })
+
+  const onProfileSubmit = (data: ProfileFormData) => {
+    setProfileError('')
+    setProfileSuccess(false)
+    updateProfileMutation.mutate(data)
+  }
+
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif']
+    if (!allowed.includes(file.type)) {
+      setProfileError('Only JPEG, PNG, WebP, GIF, or HEIC allowed')
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setProfileError('Avatar must be under 5 MB')
+      return
+    }
+    setAvatarUploading(true)
+    try {
+      await settingsApi.uploadAvatar(file)
+      qc.invalidateQueries({ queryKey: ['profile'] })
+    } catch {
+      setProfileError('Failed to upload avatar')
+    } finally {
+      setAvatarUploading(false)
+      if (avatarInputRef.current) avatarInputRef.current.value = ''
+    }
+  }
 
   // ── Accounts ────────────────────────────────────────────────────────────────
   const { data: accounts = [], isLoading: loadingAccounts } = useQuery({
@@ -241,6 +313,92 @@ export default function Settings() {
           Manage your account and preferences
         </p>
       </div>
+
+      {/* ── Section 0: Profile ──────────────────────────────────────────────── */}
+      <Card>
+        <SectionHeader icon={UserCircle} title="Profile" />
+
+        {loadingProfile ? (
+          <Spinner size={18} />
+        ) : (
+          <div className="flex items-start gap-6">
+            {/* Avatar */}
+            <div className="flex flex-col items-center gap-2 flex-shrink-0">
+              <div
+                className="w-16 h-16 rounded-full overflow-hidden flex items-center justify-center"
+                style={{ background: 'var(--color-surface-raise)', border: '1px solid var(--color-border)' }}
+              >
+                {profile?.avatar_url ? (
+                  <img src={profile.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
+                ) : (
+                  <UserCircle size={32} style={{ color: 'var(--color-text-muted)' }} />
+                )}
+              </div>
+              <button
+                onClick={() => avatarInputRef.current?.click()}
+                disabled={avatarUploading}
+                className="text-center transition-opacity disabled:opacity-60"
+                style={{ fontSize: 11, color: 'var(--color-text-muted)', background: 'none', border: 'none', cursor: 'pointer' }}
+              >
+                {avatarUploading ? 'Uploading…' : 'Change photo'}
+              </button>
+              <input
+                ref={avatarInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleAvatarChange}
+              />
+            </div>
+
+            {/* Fields */}
+            <form onSubmit={handleProfileSubmit(onProfileSubmit)} className="flex-1 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block mb-1.5" style={{ fontSize: 12, color: 'var(--color-text-secondary)', fontWeight: 500 }}>First name</label>
+                  <input {...registerProfile('first_name')} type="text" autoComplete="given-name" className="w-full" style={{ fontSize: 13 }} />
+                  {profileErrors.first_name && <p className="mt-1" style={{ fontSize: 11, color: 'var(--color-negative)' }}>{profileErrors.first_name.message}</p>}
+                </div>
+                <div>
+                  <label className="block mb-1.5" style={{ fontSize: 12, color: 'var(--color-text-secondary)', fontWeight: 500 }}>Last name</label>
+                  <input {...registerProfile('last_name')} type="text" autoComplete="family-name" className="w-full" style={{ fontSize: 13 }} />
+                  {profileErrors.last_name && <p className="mt-1" style={{ fontSize: 11, color: 'var(--color-negative)' }}>{profileErrors.last_name.message}</p>}
+                </div>
+              </div>
+              <div>
+                <label className="block mb-1.5" style={{ fontSize: 12, color: 'var(--color-text-secondary)', fontWeight: 500 }}>Phone</label>
+                <input {...registerProfile('phone')} type="tel" autoComplete="tel" className="w-full" style={{ fontSize: 13 }} />
+                {profileErrors.phone && <p className="mt-1" style={{ fontSize: 11, color: 'var(--color-negative)' }}>{profileErrors.phone.message}</p>}
+              </div>
+              <div>
+                <label className="block mb-1.5" style={{ fontSize: 12, color: 'var(--color-text-secondary)', fontWeight: 500 }}>Email</label>
+                <input
+                  type="email"
+                  value={profile?.email ?? ''}
+                  disabled
+                  className="w-full"
+                  style={{ fontSize: 13, opacity: 0.6, cursor: 'not-allowed' }}
+                />
+                {profile && !profile.email_verified && (
+                  <p className="mt-1" style={{ fontSize: 11, color: 'var(--color-negative)' }}>Email not verified</p>
+                )}
+              </div>
+
+              {profileError && <p style={{ fontSize: 12, color: 'var(--color-negative)' }}>{profileError}</p>}
+              {profileSuccess && <p style={{ fontSize: 12, color: 'var(--color-positive)' }}>Profile updated</p>}
+
+              <button
+                type="submit"
+                disabled={profileSubmitting}
+                className="px-4 py-2 rounded-lg font-medium transition-opacity disabled:opacity-60"
+                style={{ background: 'var(--color-accent)', color: '#000', fontSize: 13 }}
+              >
+                {profileSubmitting ? 'Saving…' : 'Save changes'}
+              </button>
+            </form>
+          </div>
+        )}
+      </Card>
 
       {/* ── Section 1: Connected Accounts ───────────────────────────────────── */}
       <Card>

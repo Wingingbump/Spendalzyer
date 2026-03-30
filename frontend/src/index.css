@@ -4,29 +4,31 @@
 
 :root {
   /* Dark mode (default) */
-  --color-bg: #141418;
-  --color-surface: #1c1c20;
-  --color-surface-raise: #242428;
-  --color-border: #2e2e34;
-  --color-text-primary: #e8e6e0;
-  --color-text-secondary: #888890;
-  --color-text-muted: #52525a;
+  --color-bg: #111318;
+  --color-surface: #1a1c20;
+  --color-surface-raise: #282a2e;
+  --color-border: #434654;
+  --color-text-primary: #e2e2e8;
+  --color-text-secondary: #c3c5d7;
+  --color-text-muted: #8d90a0;
   --color-positive: #5abf8a;
   --color-negative: #e86060;
-  --color-accent: #c8ff00;
+  --color-accent: #1a56db;
+  --color-accent-text: #b5c4ff;
 }
 
 .light {
-  --color-bg: #f5f3ef;
-  --color-surface: #edeae5;
-  --color-surface-raise: #e4e1db;
-  --color-border: #d5d0c8;
-  --color-text-primary: #1c1a16;
-  --color-text-secondary: #6b6560;
-  --color-text-muted: #9c9890;
+  --color-bg: #f0f2f8;
+  --color-surface: #e8eaf4;
+  --color-surface-raise: #dde0ef;
+  --color-border: #c5c9de;
+  --color-text-primary: #1a1c26;
+  --color-text-secondary: #4a4e6a;
+  --color-text-muted: #7a7e9a;
   --color-positive: #2d8a5e;
   --color-negative: #c93535;
-  --color-accent: #5a8f00;
+  --color-accent: #1a56db;
+  --color-accent-text: #1a56db;
 }
 
 * {
@@ -87,7 +89,9 @@ select:focus {
 input[type="text"],
 input[type="password"],
 input[type="number"],
-input[type="search"] {
+input[type="search"],
+input[type="email"],
+input[type="tel"] {
   background-color: var(--color-surface-raise);
   color: var(--color-text-primary);
   border: 1px solid var(--color-border);
@@ -100,7 +104,9 @@ input[type="search"] {
 input[type="text"]:focus,
 input[type="password"]:focus,
 input[type="number"]:focus,
-input[type="search"]:focus {
+input[type="search"]:focus,
+input[type="email"]:focus,
+input[type="tel"]:focus {
   border-color: var(--color-accent);
 }
 

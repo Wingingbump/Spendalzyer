@@ -213,6 +213,17 @@ def _run_migrations():
             )
         """)
 
+        # Merchant overrides — per-user display name corrections
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS merchant_overrides (
+                user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                raw_name     TEXT    NOT NULL,
+                display_name TEXT    NOT NULL,
+                updated_at   TIMESTAMPTZ DEFAULT NOW(),
+                PRIMARY KEY (user_id, raw_name)
+            )
+        """)
+
         # Budgets
         conn.execute("""
             CREATE TABLE IF NOT EXISTS budgets (
@@ -290,6 +301,58 @@ def _run_migrations():
             ALTER TABLE users ADD COLUMN IF NOT EXISTS deletion_scheduled_at TIMESTAMPTZ DEFAULT NULL
         """)
 
+        # Fix missing ON DELETE CASCADE on early tables
+        for tbl, fkey in [
+            ("connected_accounts", "connected_accounts_user_id_fkey"),
+            ("transactions",       "transactions_user_id_fkey"),
+        ]:
+            conn.execute(f"""
+                DO $$ BEGIN
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.table_constraints
+                        WHERE constraint_name = '{fkey}'
+                    ) THEN
+                        ALTER TABLE {tbl} DROP CONSTRAINT {fkey};
+                        ALTER TABLE {tbl} ADD CONSTRAINT {fkey}
+                            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+                    END IF;
+                END $$
+            """)
+
+        # User profile fields
+        conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name TEXT")
+        conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name TEXT")
+        conn.execute("ALTER TABLE users DROP COLUMN IF EXISTS name")
+        conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT")
+        conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT")
+        conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT")
+        conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE")
+        conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE")
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_idx ON users (LOWER(email)) WHERE email IS NOT NULL"
+        )
+
+        # Email verification tokens
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS email_verification_tokens (
+                token      TEXT PRIMARY KEY,
+                user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                expires_at TIMESTAMPTZ NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+
+        # Password reset tokens (email-based, replaces static secret)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                token      TEXT PRIMARY KEY,
+                user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                expires_at TIMESTAMPTZ NOT NULL,
+                used       BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+
         # Refresh token store (for rotation — each token is single-use)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS refresh_tokens (
@@ -359,22 +422,11 @@ _run_migrations()
 
 # ── Users ────────────────────────────────────────────────────────────────────────
 
-def create_user(username: str, password_hash: str) -> int:
-    """Insert a new user. Caller must pass an already-hashed password."""
-    with get_conn() as conn:
-        conn.execute("SET LOCAL app.current_user_id = 'bypass'")
-        row = conn.execute(
-            "INSERT INTO users (username, password) VALUES (%s, %s) RETURNING id",
-            (username.strip(), password_hash)
-        ).fetchone()
-    return row["id"]
-
-
 def get_user_by_username(username: str) -> dict | None:
     with get_conn() as conn:
         conn.execute("SET LOCAL app.current_user_id = 'bypass'")
         row = conn.execute(
-            "SELECT id, username, password FROM users WHERE LOWER(username) = LOWER(%s)",
+            "SELECT id, username, password, email, first_name, last_name, email_verified, is_active FROM users WHERE LOWER(username) = LOWER(%s)",
             (username,)
         ).fetchone()
     return dict(row) if row else None
@@ -384,7 +436,7 @@ def get_user_by_id(user_id: int) -> dict | None:
     with get_conn() as conn:
         conn.execute("SET LOCAL app.current_user_id = 'bypass'")
         row = conn.execute(
-            "SELECT id, username FROM users WHERE id = %s", (user_id,)
+            "SELECT id, username, first_name, last_name, email FROM users WHERE id = %s", (user_id,)
         ).fetchone()
     return dict(row) if row else None
 
@@ -397,6 +449,113 @@ def update_user_password(user_id: int, password_hash: str):
             "UPDATE users SET password = %s WHERE id = %s",
             (password_hash, user_id)
         )
+
+
+def create_user(username: str, password_hash: str, first_name: str = "", last_name: str = "", email: str = "", phone: str = "") -> int:
+    """Insert a new unverified user. Caller must pass an already-hashed password."""
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = 'bypass'")
+        row = conn.execute(
+            """INSERT INTO users (username, password, first_name, last_name, email, phone, email_verified, is_active)
+               VALUES (%s, %s, %s, %s, %s, %s, FALSE, FALSE) RETURNING id""",
+            (username.strip(), password_hash, first_name.strip(), last_name.strip(), email.strip().lower(), phone.strip())
+        ).fetchone()
+    return row["id"]
+
+
+def get_user_by_email(email: str) -> dict | None:
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = 'bypass'")
+        row = conn.execute(
+            "SELECT id, username, password, email, first_name, last_name, email_verified, is_active FROM users WHERE LOWER(email) = LOWER(%s)",
+            (email,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def update_user_profile(user_id: int, first_name: str, last_name: str, phone: str):
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = 'bypass'")
+        conn.execute(
+            "UPDATE users SET first_name = %s, last_name = %s, phone = %s WHERE id = %s",
+            (first_name, last_name, phone, user_id)
+        )
+
+
+def update_user_avatar(user_id: int, avatar_url: str):
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = 'bypass'")
+        conn.execute(
+            "UPDATE users SET avatar_url = %s WHERE id = %s",
+            (avatar_url, user_id)
+        )
+
+
+def get_user_profile(user_id: int) -> dict | None:
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = 'bypass'")
+        row = conn.execute(
+            "SELECT id, username, first_name, last_name, email, phone, avatar_url, email_verified, created_at FROM users WHERE id = %s",
+            (user_id,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+# ── Email verification tokens ─────────────────────────────────────────────────
+
+def create_email_verification_token(user_id: int) -> str:
+    token = secrets.token_urlsafe(32)
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = 'bypass'")
+        conn.execute("DELETE FROM email_verification_tokens WHERE user_id = %s", (user_id,))
+        conn.execute(
+            "INSERT INTO email_verification_tokens (token, user_id, expires_at) VALUES (%s, %s, NOW() + INTERVAL '24 hours')",
+            (token, user_id)
+        )
+    return token
+
+
+def consume_email_verification_token(token: str) -> int | None:
+    """Validate and consume token. Returns user_id or None."""
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = 'bypass'")
+        row = conn.execute(
+            "DELETE FROM email_verification_tokens WHERE token = %s AND expires_at > NOW() RETURNING user_id",
+            (token,)
+        ).fetchone()
+        if row:
+            conn.execute(
+                "UPDATE users SET email_verified = TRUE, is_active = TRUE WHERE id = %s",
+                (row["user_id"],)
+            )
+    return row["user_id"] if row else None
+
+
+# ── Password reset tokens ─────────────────────────────────────────────────────
+
+def create_password_reset_token(user_id: int) -> str:
+    token = secrets.token_urlsafe(32)
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = 'bypass'")
+        conn.execute("DELETE FROM password_reset_tokens WHERE user_id = %s", (user_id,))
+        conn.execute(
+            "INSERT INTO password_reset_tokens (token, user_id, expires_at) VALUES (%s, %s, NOW() + INTERVAL '1 hour')",
+            (token, user_id)
+        )
+    return token
+
+
+def consume_password_reset_token(token: str) -> int | None:
+    """Validate and consume token. Returns user_id or None."""
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = 'bypass'")
+        row = conn.execute(
+            """DELETE FROM password_reset_tokens
+               WHERE token = %s AND expires_at > NOW() AND used = FALSE
+               RETURNING user_id""",
+            (token,)
+        ).fetchone()
+    return row["user_id"] if row else None
 
 
 def list_users() -> list[dict]:
@@ -857,14 +1016,57 @@ def save_normalization_entry(raw_name: str, clean_name: str):
         """, (raw_name, clean_name))
 
 
+# ── Merchant overrides ───────────────────────────────────────────────────────────
+
+def get_merchant_overrides(user_id: int) -> dict:
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
+        rows = conn.execute(
+            "SELECT raw_name, display_name FROM merchant_overrides WHERE user_id = %s",
+            (user_id,)
+        ).fetchall()
+    return {r["raw_name"]: r["display_name"] for r in rows}
+
+
+def save_merchant_override(user_id: int, raw_name: str, display_name: str):
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
+        conn.execute("""
+            INSERT INTO merchant_overrides (user_id, raw_name, display_name, updated_at)
+            VALUES (%s, %s, %s, NOW())
+            ON CONFLICT (user_id, raw_name) DO UPDATE SET
+                display_name = EXCLUDED.display_name,
+                updated_at   = NOW()
+        """, (user_id, raw_name, display_name))
+
+
+def delete_merchant_override(user_id: int, raw_name: str):
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
+        conn.execute(
+            "DELETE FROM merchant_overrides WHERE user_id = %s AND raw_name = %s",
+            (user_id, raw_name)
+        )
+
+
 # ── Account deletion ─────────────────────────────────────────────────────────────
 
 def schedule_user_deletion(user_id: int):
+    grace_days = int(os.getenv("DELETION_GRACE_DAYS", "30"))
     with get_conn() as conn:
         conn.execute("SET LOCAL app.current_user_id = 'bypass'")
         conn.execute(
-            "UPDATE users SET deletion_scheduled_at = NOW() + INTERVAL '30 days' WHERE id = %s",
+            f"UPDATE users SET deletion_scheduled_at = NOW() + INTERVAL '{grace_days} days' WHERE id = %s",
             (user_id,)
+        )
+
+
+def purge_deleted_users():
+    """Delete accounts whose deletion grace period has expired."""
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = 'bypass'")
+        conn.execute(
+            "DELETE FROM users WHERE deletion_scheduled_at IS NOT NULL AND deletion_scheduled_at <= NOW()"
         )
 
 

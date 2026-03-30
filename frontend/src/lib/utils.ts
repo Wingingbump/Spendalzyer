@@ -58,8 +58,8 @@ export function truncate(str: string, maxLen: number): string {
 /**
  * Get chart color by index from the palette
  */
-const DARK_CHART_COLORS = ['#c8ff00', '#5abf8a', '#e86060', '#7aaed4', '#e8c17a', '#c47adb']
-const LIGHT_CHART_COLORS = ['#82c9a0', '#7aaed4', '#e89898', '#a8c8e8', '#e8d4a0', '#c4a0d4']
+const DARK_CHART_COLORS = ['#1a56db', '#b5c4ff', '#7aaed4', '#5abf8a', '#e8c17a', '#c47adb']
+const LIGHT_CHART_COLORS = ['#1a56db', '#7aaed4', '#5a9fd4', '#5abf8a', '#e8c17a', '#c47adb']
 
 export function getChartColor(index: number, theme: 'dark' | 'light' = 'dark'): string {
   const palette = theme === 'dark' ? DARK_CHART_COLORS : LIGHT_CHART_COLORS

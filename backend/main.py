@@ -6,6 +6,7 @@ _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
+import asyncio
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
@@ -17,7 +18,7 @@ from slowapi.errors import RateLimitExceeded
 load_dotenv()
 
 from backend.limiter import limiter
-from core.db import seed_category_map_all_users
+from core.db import seed_category_map_all_users, purge_deleted_users
 
 from backend.routers import (
     auth,
@@ -35,10 +36,22 @@ from backend.routers import (
 )
 
 
+async def _purge_loop():
+    while True:
+        try:
+            purge_deleted_users()
+        except Exception as e:
+            print(f"[purge] error: {e}")
+        await asyncio.sleep(60 * 60)  # run every hour
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     seed_category_map_all_users()
+    purge_deleted_users()
+    task = asyncio.create_task(_purge_loop())
     yield
+    task.cancel()
 
 
 app = FastAPI(title="PersonalSpend API", version="1.0.0", lifespan=lifespan, redirect_slashes=False)
@@ -51,8 +64,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[frontend_url],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 # Routers

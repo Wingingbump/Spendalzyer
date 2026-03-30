@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
-import { authApi, type User } from '../lib/api'
+import { api, authApi, type User } from '../lib/api'
 
 interface AuthContextValue {
   user: User | null
@@ -20,11 +20,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    authApi
-      .me()
-      .then((u) => setUser(u))
-      .catch(() => setUser(null))
-      .finally(() => setIsLoading(false))
+    let cancelled = false
+
+    const initAuth = async () => {
+      try {
+        const u = await authApi.me()
+        if (!cancelled) setUser(u)
+      } catch {
+        // Access token may be missing or expired — try refreshing once.
+        if (cancelled) return
+        try {
+          await api.post('/auth/refresh')
+          if (cancelled) return
+          const u = await authApi.me()
+          if (!cancelled) setUser(u)
+        } catch {
+          if (!cancelled) setUser(null)
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false)
+      }
+    }
+
+    initAuth()
+    return () => { cancelled = true }
+  }, [])
+
+  // Listen for the soft logout signal dispatched by the API interceptor when a
+  // token refresh fails mid-session. Setting user to null lets React Router
+  // redirect to /login without a hard page reload (which would restart the loop).
+  useEffect(() => {
+    const handleAuthLogout = () => setUser(null)
+    window.addEventListener('auth:logout', handleAuthLogout)
+    return () => window.removeEventListener('auth:logout', handleAuthLogout)
   }, [])
 
   const logout = async () => {

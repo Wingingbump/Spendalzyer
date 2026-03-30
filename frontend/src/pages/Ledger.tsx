@@ -1,10 +1,12 @@
 import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Search, Check } from 'lucide-react'
-import { ledgerApi, transactionsApi, workspaceApi } from '../lib/api'
+import { ledgerApi, transactionsApi, workspaceApi, merchantsApi } from '../lib/api'
 import { Download } from 'lucide-react'
 import { useFilters } from '../context/FilterContext'
 import { useWorkspace } from '../context/WorkspaceContext'
+import { usePanel } from '../context/PanelContext'
+import { PANEL_WIDTH } from '../components/RightPanel'
 import { formatCurrency, formatDate } from '../lib/utils'
 import SkeletonRow from '../components/SkeletonRow'
 import { ActiveGroupBanner } from '../components/RightPanel'
@@ -29,12 +31,16 @@ const CATEGORIES = [
 export default function Ledger() {
   const { range, institution, account } = useFilters()
   const { activeGroup } = useWorkspace()
+  const { panelOpen } = usePanel()
+  const rhsWidth = panelOpen ? PANEL_WIDTH : 0
   const [search, setSearch] = useState('')
   const [types, setTypes] = useState<string[]>([])
   const [showTransfers, setShowTransfers] = useState(false)
   const [showDuplicates, setShowDuplicates] = useState(false)
   const [editState, setEditState] = useState<EditState>({})
   const [saved, setSaved] = useState<SavedState>({})
+  const [editingMerchant, setEditingMerchant] = useState<number | null>(null)
+  const [merchantDraft, setMerchantDraft] = useState('')
   const qc = useQueryClient()
 
   const { data: ledgerData, isLoading } = useQuery({
@@ -83,6 +89,21 @@ export default function Ledger() {
       qc.invalidateQueries({ queryKey: ['ledger'] })
     },
   })
+
+  const renameMerchantMutation = useMutation({
+    mutationFn: ({ rawName, displayName }: { rawName: string; displayName: string }) =>
+      merchantsApi.saveOverride(rawName, displayName),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ledger'] })
+      qc.invalidateQueries({ queryKey: ['merchants'] })
+    },
+  })
+
+  const commitMerchant = (rawName: string) => {
+    const trimmed = merchantDraft.trim()
+    if (trimmed && trimmed !== rawName) renameMerchantMutation.mutate({ rawName, displayName: trimmed })
+    setEditingMerchant(null)
+  }
 
   const handleBlur = (rowId: number, field: 'category' | 'notes', originalValue: string) => {
     const edit = editState[rowId]
@@ -230,10 +251,29 @@ export default function Ledger() {
                           {row.name}
                         </span>
                       </td>
-                      <td>
-                        <span style={{ fontSize: 12, color: 'var(--color-text-secondary)', maxWidth: 130, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {row.merchant_normalized || '—'}
-                        </span>
+                      <td className="editable-cell">
+                        {editingMerchant === row.id ? (
+                          <input
+                            type="text"
+                            value={merchantDraft}
+                            autoFocus
+                            onChange={(e) => setMerchantDraft(e.target.value)}
+                            onBlur={() => commitMerchant(row.merchant_normalized || '')}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') commitMerchant(row.merchant_normalized || '')
+                              if (e.key === 'Escape') setEditingMerchant(null)
+                            }}
+                            style={{ fontSize: 12, width: 120 }}
+                          />
+                        ) : (
+                          <span
+                            onDoubleClick={() => { setMerchantDraft(row.merchant_normalized || ''); setEditingMerchant(row.id) }}
+                            title="Double-click to rename"
+                            style={{ fontSize: 12, color: 'var(--color-text-secondary)', maxWidth: 130, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'text' }}
+                          >
+                            {row.merchant_normalized || '—'}
+                          </span>
+                        )}
                       </td>
                       <td className="editable-cell">
                         <select
@@ -242,7 +282,7 @@ export default function Ledger() {
                             setEdit(row.id, 'category', e.target.value)
                             patchMutation.mutate({ id: row.id, data: { category: e.target.value } })
                           }}
-                          style={{ fontSize: 12, minWidth: 130, border: 'none', background: 'transparent', padding: '2px 24px 2px 4px' }}
+                          style={{ fontSize: 12, minWidth: 130, border: 'none', background: 'var(--color-surface)', color: 'var(--color-text-primary)', padding: '2px 24px 2px 4px' }}
                         >
                           {CATEGORIES.map((c) => (
                             <option key={c} value={c}>{c}</option>
@@ -342,7 +382,7 @@ export default function Ledger() {
             position: 'fixed',
             bottom: 0,
             left: 220,
-            right: 300,
+            right: rhsWidth,
             height: 56,
             borderTop: '1px solid var(--color-border)',
             background: 'var(--color-surface-raise)',

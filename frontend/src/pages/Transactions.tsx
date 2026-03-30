@@ -2,11 +2,13 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Search, Check, ChevronUp, ChevronDown } from 'lucide-react'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
-import { transactionsApi, categoriesApi, workspaceApi } from '../lib/api'
+import { transactionsApi, categoriesApi, workspaceApi, merchantsApi } from '../lib/api'
 import type { Transaction } from '../lib/api'
 import { useFilters } from '../context/FilterContext'
 import { useWorkspace } from '../context/WorkspaceContext'
 import { useTheme } from '../context/ThemeContext'
+import { usePanel } from '../context/PanelContext'
+import { PANEL_WIDTH } from '../components/RightPanel'
 import { formatCurrency, formatDate, CHART_COLORS_DARK, CHART_COLORS_LIGHT } from '../lib/utils'
 import SkeletonRow from '../components/SkeletonRow'
 import { ActiveGroupBanner } from '../components/RightPanel'
@@ -33,10 +35,14 @@ export default function Transactions() {
   const { range, institution, account } = useFilters()
   const { activeGroup } = useWorkspace()
   const { theme } = useTheme()
+  const { panelOpen } = usePanel()
+  const rhsWidth = panelOpen ? PANEL_WIDTH : 0
   const [search, setSearch] = useState('')
   const [editState, setEditState] = useState<EditState>({})
   const [saved, setSaved] = useState<SavedState>({})
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [editingMerchant, setEditingMerchant] = useState<number | null>(null)
+  const [merchantDraft, setMerchantDraft] = useState('')
   const qc = useQueryClient()
   const chartColors = theme === 'dark' ? CHART_COLORS_DARK : CHART_COLORS_LIGHT
 
@@ -71,6 +77,21 @@ export default function Transactions() {
     },
   })
 
+
+  const renameMerchantMutation = useMutation({
+    mutationFn: ({ rawName, displayName }: { rawName: string; displayName: string }) =>
+      merchantsApi.saveOverride(rawName, displayName),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['transactions'] })
+      qc.invalidateQueries({ queryKey: ['merchants'] })
+    },
+  })
+
+  const commitMerchant = (rawName: string) => {
+    const trimmed = merchantDraft.trim()
+    if (trimmed && trimmed !== rawName) renameMerchantMutation.mutate({ rawName, displayName: trimmed })
+    setEditingMerchant(null)
+  }
 
   const handleBlur = (tx: Transaction, field: 'category' | 'amount' | 'notes') => {
     const edit = editState[tx.id]
@@ -220,10 +241,29 @@ export default function Transactions() {
                           {tx.name}
                         </span>
                       </td>
-                      <td>
-                        <span style={{ fontSize: 12, color: 'var(--color-text-secondary)', maxWidth: 140, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {tx.merchant_normalized || '—'}
-                        </span>
+                      <td className="editable-cell">
+                        {editingMerchant === tx.id ? (
+                          <input
+                            type="text"
+                            value={merchantDraft}
+                            autoFocus
+                            onChange={(e) => setMerchantDraft(e.target.value)}
+                            onBlur={() => commitMerchant(tx.merchant_normalized || '')}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') commitMerchant(tx.merchant_normalized || '')
+                              if (e.key === 'Escape') setEditingMerchant(null)
+                            }}
+                            style={{ fontSize: 12, width: 130 }}
+                          />
+                        ) : (
+                          <span
+                            onDoubleClick={() => { setMerchantDraft(tx.merchant_normalized || ''); setEditingMerchant(tx.id) }}
+                            title="Double-click to rename"
+                            style={{ fontSize: 12, color: 'var(--color-text-secondary)', maxWidth: 140, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'text' }}
+                          >
+                            {tx.merchant_normalized || '—'}
+                          </span>
+                        )}
                       </td>
                       <td className="editable-cell">
                         <select
@@ -233,7 +273,7 @@ export default function Transactions() {
                             // Auto-save on change for select
                             patchMutation.mutate({ id: tx.id, data: { category: e.target.value } })
                           }}
-                          style={{ fontSize: 12, minWidth: 140, border: 'none', background: 'transparent', padding: '2px 24px 2px 4px' }}
+                          style={{ fontSize: 12, minWidth: 140, border: 'none', background: 'var(--color-surface)', color: 'var(--color-text-primary)', padding: '2px 24px 2px 4px' }}
                         >
                           {allCategories.map((c) => (
                             <option key={c} value={c}>{c}</option>
@@ -342,7 +382,7 @@ export default function Transactions() {
           position: 'fixed',
           bottom: 56,
           left: 220,
-          right: 300,
+          right: rhsWidth,
           height: drawerOpen ? '45vh' : 0,
           overflow: 'hidden',
           transition: 'height 0.25s ease',
@@ -425,7 +465,7 @@ export default function Transactions() {
           position: 'fixed',
           bottom: 0,
           left: 220,
-          right: 300,
+          right: rhsWidth,
           height: 56,
           borderTop: '1px solid var(--color-border)',
           background: 'var(--color-surface-raise)',

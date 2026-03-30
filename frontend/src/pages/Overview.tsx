@@ -7,7 +7,7 @@ import { ShoppingBag, Store, Calendar } from 'lucide-react'
 import { insightsApi } from '../lib/api'
 import { useFilters } from '../context/FilterContext'
 import { useTheme } from '../context/ThemeContext'
-import { formatCurrency, formatMonth, formatDate, CHART_COLORS_DARK, CHART_COLORS_LIGHT } from '../lib/utils'
+import { formatCurrency, formatMonth, CHART_COLORS_DARK, CHART_COLORS_LIGHT } from '../lib/utils'
 import Card from '../components/Card'
 import MetricCard from '../components/MetricCard'
 import Spinner from '../components/Spinner'
@@ -100,6 +100,7 @@ export default function Overview() {
           }
           subPositive={isPositiveDelta}
           isLoading={loadingSummary}
+          hero
         />
         <MetricCard
           label="Transactions"
@@ -172,7 +173,7 @@ export default function Overview() {
                       {formatCurrency(cat.total)}
                     </span>
                   </div>
-                  <div className="rounded-full overflow-hidden" style={{ height: 4, background: 'var(--color-surface-raise)' }}>
+                  <div className="rounded-full overflow-hidden" style={{ height: 6, background: 'var(--color-surface-raise)' }}>
                     <div
                       className="h-full rounded-full"
                       style={{ width: `${cat.pct}%`, background: chartColors[i % chartColors.length] }}
@@ -247,7 +248,7 @@ export default function Overview() {
                     {summary.biggest_purchase.name}
                   </p>
                   <p style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 2 }}>
-                    {formatDate(summary.biggest_purchase.date)}
+                    {summary.biggest_purchase.date}
                   </p>
                 </>
               ) : (
@@ -309,7 +310,7 @@ export default function Overview() {
                     {formatCurrency(summary.biggest_spending_day.total)}
                   </p>
                   <p style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 2 }}>
-                    {formatDate(summary.biggest_spending_day.date)}
+                    {summary.biggest_spending_day.date}
                   </p>
                 </>
               ) : (

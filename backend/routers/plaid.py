@@ -33,7 +33,10 @@ _PLAID_SALT = "plaid-link"
 
 
 def _get_flask_secret() -> str:
-    return os.getenv("FLASK_SECRET_KEY", "dev-insecure-change-me")
+    secret = os.getenv("FLASK_SECRET_KEY")
+    if not secret:
+        raise RuntimeError("FLASK_SECRET_KEY environment variable is not set")
+    return secret
 
 
 def _signer() -> URLSafeTimedSerializer:
@@ -84,10 +87,10 @@ def get_link_token(current_user: dict = Depends(get_current_user)):
         )
         signed_token = _sign_user_id(current_user["id"])
         return {"link_token": response["link_token"], "signed_token": signed_token}
-    except plaid.ApiException as e:
-        raise HTTPException(status_code=400, detail=str(e.body))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except plaid.ApiException:
+        raise HTTPException(status_code=400, detail="Failed to create Plaid link token")
+    except Exception:
+        raise HTTPException(status_code=500, detail="An error occurred. Please try again.")
 
 
 @router.post("/exchange")
@@ -127,7 +130,7 @@ def exchange_token(body: ExchangeBody, current_user: dict = Depends(get_current_
             ],
         )
         return {"institution": body.institution}
-    except plaid.ApiException as e:
-        raise HTTPException(status_code=400, detail=str(e.body))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except plaid.ApiException:
+        raise HTTPException(status_code=400, detail="Failed to exchange Plaid token")
+    except Exception:
+        raise HTTPException(status_code=500, detail="An error occurred. Please try again.")

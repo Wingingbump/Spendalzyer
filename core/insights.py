@@ -4,7 +4,7 @@ from dateutil.relativedelta import relativedelta
 import numpy as np
 from core.categorize import apply_categories
 from core.dedup import apply_dedup, get_clean_spending
-from core.db import fetch_transactions
+from core.db import fetch_transactions, get_merchant_overrides
 
 
 # ── Data loading ───────────────────────────────────────────────────────────────
@@ -50,6 +50,14 @@ def load_data(user_id: int) -> pd.DataFrame:
     df = df.drop(columns=["has_user_override", "override_category"])
 
     df = apply_dedup(df)
+
+    # Apply per-user merchant display name overrides (keyed by AI-normalized name)
+    overrides = get_merchant_overrides(user_id)
+    if overrides:
+        df["merchant_normalized"] = df["merchant_normalized"].map(
+            lambda v: overrides.get(v, v)
+        )
+
     return df
 
 # ── Filtering ──────────────────────────────────────────────────────────────────

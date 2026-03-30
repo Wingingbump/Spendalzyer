@@ -24,5 +24,5 @@ def sync(
             "synced_count": synced_count,
             "last_synced_at": str(last_synced_at) if last_synced_at else None,
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Sync failed. Please try again.")

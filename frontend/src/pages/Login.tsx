@@ -6,95 +6,102 @@ import { z } from 'zod'
 import { authApi } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
 
-const schema = z.object({
+const loginSchema = z.object({
   username: z.string().min(1, 'Username is required'),
   password: z.string().min(1, 'Password is required'),
 })
 
-const resetSchema = z.object({
-  username: z.string().min(1, 'Username is required'),
-  new_password: z.string().min(1, 'New password is required'),
-  reset_secret: z.string().min(1, 'Reset secret is required'),
+const registerSchema = z.object({
+  first_name: z.string().min(1, 'First name is required'),
+  last_name: z.string().min(1, 'Last name is required'),
+  email: z.string().email('Enter a valid email'),
+  phone: z.string().min(7, 'Enter a valid phone number'),
+  username: z.string().min(3, 'Username must be at least 3 characters'),
+  password: z.string().min(8, 'Password must be at least 8 characters'),
 })
 
-type FormData = z.infer<typeof schema>
-type ResetFormData = z.infer<typeof resetSchema>
+const forgotSchema = z.object({
+  email: z.string().email('Enter a valid email'),
+})
+
+type LoginData = z.infer<typeof loginSchema>
+type RegisterData = z.infer<typeof registerSchema>
+type ForgotData = z.infer<typeof forgotSchema>
 
 export default function Login() {
   const [tab, setTab] = useState<'login' | 'register'>('login')
-  const [showReset, setShowReset] = useState(false)
+  const [showForgot, setShowForgot] = useState(false)
   const [serverError, setServerError] = useState('')
   const [successMsg, setSuccessMsg] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [registered, setRegistered] = useState(false)
   const navigate = useNavigate()
   const { setUser } = useAuth()
 
-  const {
-    register,
-    handleSubmit,
-    formState: { errors },
-  } = useForm<FormData>({
-    resolver: zodResolver(schema),
-  })
+  const loginForm = useForm<LoginData>({ resolver: zodResolver(loginSchema) })
+  const registerForm = useForm<RegisterData>({ resolver: zodResolver(registerSchema) })
+  const forgotForm = useForm<ForgotData>({ resolver: zodResolver(forgotSchema) })
 
-  const {
-    register: registerReset,
-    handleSubmit: handleResetSubmit,
-    formState: { errors: resetErrors },
-    reset: resetResetForm,
-  } = useForm<ResetFormData>({
-    resolver: zodResolver(resetSchema),
-  })
-
-  const onSubmit = async (data: FormData) => {
+  const onLogin = async (data: LoginData) => {
     setServerError('')
     setIsSubmitting(true)
     try {
-      const user = tab === 'login'
-        ? await authApi.login(data.username, data.password)
-        : await authApi.register(data.username, data.password)
+      const user = await authApi.login(data.username, data.password)
       setUser(user)
       navigate('/overview', { replace: true })
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } }
-      setServerError(
-        axiosErr.response?.data?.detail ||
-        (tab === 'login' ? 'Invalid username or password' : 'Registration failed')
-      )
+      const e = err as { response?: { data?: { detail?: string } } }
+      setServerError(e.response?.data?.detail || 'Invalid username or password')
     } finally {
       setIsSubmitting(false)
     }
   }
 
-  const onReset = async (data: ResetFormData) => {
+  const onRegister = async (data: RegisterData) => {
     setServerError('')
-    setSuccessMsg('')
     setIsSubmitting(true)
     try {
-      await authApi.resetPassword(data.username, data.new_password, data.reset_secret)
-      setSuccessMsg('Password reset — you can now sign in.')
-      resetResetForm()
-      setTimeout(() => { setShowReset(false); setSuccessMsg('') }, 2000)
+      await authApi.register(data.username, data.password, data.first_name, data.last_name, data.email, data.phone)
+      setRegistered(true)
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } }
-      setServerError(axiosErr.response?.data?.detail || 'Reset failed')
+      const e = err as { response?: { data?: { detail?: string } } }
+      setServerError(e.response?.data?.detail || 'Registration failed')
     } finally {
       setIsSubmitting(false)
     }
   }
 
-  const closeReset = () => {
-    setShowReset(false)
+  const onForgot = async (data: ForgotData) => {
+    setServerError('')
+    setIsSubmitting(true)
+    try {
+      await authApi.forgotPassword(data.email)
+      setSuccessMsg('If that email is registered, a reset link has been sent.')
+      forgotForm.reset()
+    } catch {
+      setSuccessMsg('If that email is registered, a reset link has been sent.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const closeForgot = () => {
+    setShowForgot(false)
     setServerError('')
     setSuccessMsg('')
-    resetResetForm()
+    forgotForm.reset()
+  }
+
+  const switchTab = (t: 'login' | 'register') => {
+    setTab(t)
+    setServerError('')
+    setRegistered(false)
+    loginForm.reset()
+    registerForm.reset()
   }
 
   return (
-    <div
-      className="min-h-screen flex items-start justify-center"
-      style={{ background: 'var(--color-bg)', paddingTop: '10vh' }}
-    >
+    <div className="min-h-screen flex items-start justify-center" style={{ background: 'var(--color-bg)', paddingTop: '10vh' }}>
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="text-center mb-8">
@@ -107,22 +114,13 @@ export default function Login() {
         </div>
 
         {/* Card */}
-        <div
-          className="rounded-2xl p-6"
-          style={{
-            background: 'var(--color-surface)',
-            border: '1px solid var(--color-border)',
-          }}
-        >
+        <div className="rounded-2xl p-6" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
           {/* Tabs */}
-          <div
-            className="flex rounded-lg p-1 mb-6"
-            style={{ background: 'var(--color-surface-raise)' }}
-          >
+          <div className="flex rounded-lg p-1 mb-6" style={{ background: 'var(--color-surface-raise)' }}>
             {(['login', 'register'] as const).map((t) => (
               <button
                 key={t}
-                onClick={() => { setTab(t); setServerError('') }}
+                onClick={() => switchTab(t)}
                 className="flex-1 py-2 rounded-md text-sm font-medium transition-all"
                 style={{
                   background: tab === t ? 'var(--color-surface)' : 'transparent',
@@ -136,199 +134,150 @@ export default function Login() {
             ))}
           </div>
 
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            <div>
-              <label
-                className="block mb-1.5"
-                style={{ fontSize: 12, color: 'var(--color-text-secondary)', fontWeight: 500 }}
-              >
-                Username
-              </label>
-              <input
-                {...register('username')}
-                type="text"
-                placeholder="Username"
-                autoComplete="username"
-                className="w-full"
-                style={{ fontSize: 14 }}
-              />
-              {errors.username && (
-                <p className="mt-1" style={{ fontSize: 11, color: 'var(--color-negative)' }}>
-                  {errors.username.message}
-                </p>
-              )}
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label style={{ fontSize: 12, color: 'var(--color-text-secondary)', fontWeight: 500 }}>
-                  Password
-                </label>
-                {tab === 'login' && (
-                  <button
-                    type="button"
-                    onClick={() => { setShowReset(true); setServerError('') }}
+          {/* ── Login form ── */}
+          {tab === 'login' && (
+            <form onSubmit={loginForm.handleSubmit(onLogin)} className="space-y-4">
+              <div>
+                <label className="block mb-1.5" style={{ fontSize: 12, color: 'var(--color-text-secondary)', fontWeight: 500 }}>Username or email</label>
+                <input {...loginForm.register('username')} type="text" placeholder="Username or email" autoComplete="username" className="w-full" style={{ fontSize: 14 }} />
+                {loginForm.formState.errors.username && <p className="mt-1" style={{ fontSize: 11, color: 'var(--color-negative)' }}>{loginForm.formState.errors.username.message}</p>}
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label style={{ fontSize: 12, color: 'var(--color-text-secondary)', fontWeight: 500 }}>Password</label>
+                  <button type="button" onClick={() => { setShowForgot(true); setServerError('') }}
                     style={{ fontSize: 12, color: 'var(--color-text-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
                     onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--color-text-secondary)')}
-                    onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--color-text-muted)')}
-                  >
+                    onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--color-text-muted)')}>
                     Forgot password?
                   </button>
-                )}
+                </div>
+                <input {...loginForm.register('password')} type="password" placeholder="••••••••" autoComplete="current-password" className="w-full" style={{ fontSize: 14 }} />
+                {loginForm.formState.errors.password && <p className="mt-1" style={{ fontSize: 11, color: 'var(--color-negative)' }}>{loginForm.formState.errors.password.message}</p>}
               </div>
-              <input
-                {...register('password')}
-                type="password"
-                placeholder="••••••••"
-                autoComplete={tab === 'login' ? 'current-password' : 'new-password'}
-                className="w-full"
-                style={{ fontSize: 14 }}
-              />
-              {errors.password && (
-                <p className="mt-1" style={{ fontSize: 11, color: 'var(--color-negative)' }}>
-                  {errors.password.message}
-                </p>
-              )}
+              {serverError && <ErrorBox msg={serverError} />}
+              <div className="pt-2">
+                <SubmitButton loading={isSubmitting} label="Sign in" loadingLabel="Signing in…" />
+              </div>
+            </form>
+          )}
+
+          {/* ── Register form ── */}
+          {tab === 'register' && !registered && (
+            <form onSubmit={registerForm.handleSubmit(onRegister)} className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block mb-1.5" style={{ fontSize: 12, color: 'var(--color-text-secondary)', fontWeight: 500 }}>First name</label>
+                  <input {...registerForm.register('first_name')} type="text" placeholder="First" autoComplete="given-name" className="w-full" style={{ fontSize: 14 }} />
+                  {registerForm.formState.errors.first_name && <p className="mt-1" style={{ fontSize: 11, color: 'var(--color-negative)' }}>{registerForm.formState.errors.first_name.message}</p>}
+                </div>
+                <div>
+                  <label className="block mb-1.5" style={{ fontSize: 12, color: 'var(--color-text-secondary)', fontWeight: 500 }}>Last name</label>
+                  <input {...registerForm.register('last_name')} type="text" placeholder="Last" autoComplete="family-name" className="w-full" style={{ fontSize: 14 }} />
+                  {registerForm.formState.errors.last_name && <p className="mt-1" style={{ fontSize: 11, color: 'var(--color-negative)' }}>{registerForm.formState.errors.last_name.message}</p>}
+                </div>
+              </div>
+              <div>
+                <label className="block mb-1.5" style={{ fontSize: 12, color: 'var(--color-text-secondary)', fontWeight: 500 }}>Email</label>
+                <input {...registerForm.register('email')} type="email" placeholder="you@example.com" autoComplete="email" className="w-full" style={{ fontSize: 14 }} />
+                {registerForm.formState.errors.email && <p className="mt-1" style={{ fontSize: 11, color: 'var(--color-negative)' }}>{registerForm.formState.errors.email.message}</p>}
+              </div>
+              <div>
+                <label className="block mb-1.5" style={{ fontSize: 12, color: 'var(--color-text-secondary)', fontWeight: 500 }}>Phone</label>
+                <input {...registerForm.register('phone')} type="tel" placeholder="+1 555 000 0000" autoComplete="tel" className="w-full" style={{ fontSize: 14 }} />
+                {registerForm.formState.errors.phone && <p className="mt-1" style={{ fontSize: 11, color: 'var(--color-negative)' }}>{registerForm.formState.errors.phone.message}</p>}
+              </div>
+              <div>
+                <label className="block mb-1.5" style={{ fontSize: 12, color: 'var(--color-text-secondary)', fontWeight: 500 }}>Username</label>
+                <input {...registerForm.register('username')} type="text" placeholder="username" autoComplete="username" className="w-full" style={{ fontSize: 14 }} />
+                {registerForm.formState.errors.username && <p className="mt-1" style={{ fontSize: 11, color: 'var(--color-negative)' }}>{registerForm.formState.errors.username.message}</p>}
+              </div>
+              <div>
+                <label className="block mb-1.5" style={{ fontSize: 12, color: 'var(--color-text-secondary)', fontWeight: 500 }}>Password</label>
+                <input {...registerForm.register('password')} type="password" placeholder="••••••••" autoComplete="new-password" className="w-full" style={{ fontSize: 14 }} />
+                {registerForm.formState.errors.password && <p className="mt-1" style={{ fontSize: 11, color: 'var(--color-negative)' }}>{registerForm.formState.errors.password.message}</p>}
+              </div>
+              {serverError && <ErrorBox msg={serverError} />}
+              <div className="pt-2">
+                <SubmitButton loading={isSubmitting} label="Create account" loadingLabel="Creating account…" />
+              </div>
+            </form>
+          )}
+
+          {/* ── Post-registration email check ── */}
+          {tab === 'register' && registered && (
+            <div className="text-center py-4 space-y-3">
+              <div style={{ fontSize: 36 }}>📬</div>
+              <h3 style={{ fontSize: 15, fontWeight: 600, color: 'var(--color-text-primary)' }}>Check your email</h3>
+              <p style={{ fontSize: 13, color: 'var(--color-text-muted)', lineHeight: 1.6 }}>
+                We sent a confirmation link to your email address. Click it to activate your account and sign in.
+              </p>
+              <button onClick={() => switchTab('login')} style={{ fontSize: 12, color: 'var(--color-text-muted)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
+                Back to sign in
+              </button>
             </div>
-
-            {serverError && (
-              <div
-                className="rounded-lg px-3 py-2"
-                style={{
-                  background: 'rgba(232, 96, 96, 0.1)',
-                  border: '1px solid rgba(232, 96, 96, 0.3)',
-                  color: 'var(--color-negative)',
-                  fontSize: 12,
-                }}
-              >
-                {serverError}
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="w-full py-2.5 rounded-lg font-semibold transition-opacity disabled:opacity-60"
-              style={{
-                background: 'var(--color-accent)',
-                color: '#000',
-                fontSize: 14,
-                marginTop: 8,
-              }}
-            >
-              {isSubmitting
-                ? (tab === 'login' ? 'Signing in…' : 'Creating account…')
-                : (tab === 'login' ? 'Sign in' : 'Create account')
-              }
-            </button>
-          </form>
+          )}
         </div>
       </div>
 
-      {/* Reset password modal */}
-      {showReset && (
-        <div
-          className="fixed inset-0 flex items-center justify-center"
-          style={{ background: 'rgba(0,0,0,0.5)', zIndex: 50 }}
-          onClick={(e) => { if (e.target === e.currentTarget) closeReset() }}
-        >
-          <div
-            className="rounded-2xl p-6 w-full"
-            style={{
-              maxWidth: 360,
-              background: 'var(--color-surface)',
-              border: '1px solid var(--color-border)',
-            }}
-          >
-            <h2 style={{ fontSize: 16, fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 4 }}>
-              Reset password
-            </h2>
+      {/* ── Forgot password modal ── */}
+      {showForgot && (
+        <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)', zIndex: 50 }}
+          onClick={(e) => { if (e.target === e.currentTarget) closeForgot() }}>
+          <div className="rounded-2xl p-6 w-full" style={{ maxWidth: 360, background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+            <h2 style={{ fontSize: 16, fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 4 }}>Forgot password</h2>
             <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginBottom: 20 }}>
-              Enter your username, a new password, and your reset secret from the server config.
+              Enter your email and we'll send you a reset link.
             </p>
 
-            <form onSubmit={handleResetSubmit(onReset)} className="space-y-4">
-              <div>
-                <label className="block mb-1.5" style={{ fontSize: 12, color: 'var(--color-text-secondary)', fontWeight: 500 }}>
-                  Username
-                </label>
-                <input
-                  {...registerReset('username')}
-                  type="text"
-                  placeholder="Username"
-                  autoComplete="username"
-                  className="w-full"
-                  style={{ fontSize: 14 }}
-                />
-                {resetErrors.username && (
-                  <p className="mt-1" style={{ fontSize: 11, color: 'var(--color-negative)' }}>{resetErrors.username.message}</p>
-                )}
-              </div>
-              <div>
-                <label className="block mb-1.5" style={{ fontSize: 12, color: 'var(--color-text-secondary)', fontWeight: 500 }}>
-                  New password
-                </label>
-                <input
-                  {...registerReset('new_password')}
-                  type="password"
-                  placeholder="••••••••"
-                  autoComplete="new-password"
-                  className="w-full"
-                  style={{ fontSize: 14 }}
-                />
-                {resetErrors.new_password && (
-                  <p className="mt-1" style={{ fontSize: 11, color: 'var(--color-negative)' }}>{resetErrors.new_password.message}</p>
-                )}
-              </div>
-              <div>
-                <label className="block mb-1.5" style={{ fontSize: 12, color: 'var(--color-text-secondary)', fontWeight: 500 }}>
-                  Reset secret
-                </label>
-                <input
-                  {...registerReset('reset_secret')}
-                  type="password"
-                  placeholder="from your .env"
-                  className="w-full"
-                  style={{ fontSize: 14 }}
-                />
-                {resetErrors.reset_secret && (
-                  <p className="mt-1" style={{ fontSize: 11, color: 'var(--color-negative)' }}>{resetErrors.reset_secret.message}</p>
-                )}
-              </div>
-
-              {serverError && (
-                <div className="rounded-lg px-3 py-2" style={{ background: 'rgba(232, 96, 96, 0.1)', border: '1px solid rgba(232, 96, 96, 0.3)', color: 'var(--color-negative)', fontSize: 12 }}>
-                  {serverError}
+            {!successMsg ? (
+              <form onSubmit={forgotForm.handleSubmit(onForgot)} className="space-y-4">
+                <div>
+                  <label className="block mb-1.5" style={{ fontSize: 12, color: 'var(--color-text-secondary)', fontWeight: 500 }}>Email</label>
+                  <input {...forgotForm.register('email')} type="email" placeholder="jane@example.com" autoComplete="email" className="w-full" style={{ fontSize: 14 }} />
+                  {forgotForm.formState.errors.email && <p className="mt-1" style={{ fontSize: 11, color: 'var(--color-negative)' }}>{forgotForm.formState.errors.email.message}</p>}
                 </div>
-              )}
-              {successMsg && (
-                <div className="rounded-lg px-3 py-2" style={{ background: 'rgba(90, 191, 138, 0.1)', border: '1px solid rgba(90, 191, 138, 0.3)', color: 'var(--color-positive)', fontSize: 12 }}>
+                {serverError && <ErrorBox msg={serverError} />}
+                <div className="flex gap-2 pt-1">
+                  <button type="button" onClick={closeForgot} className="flex-1 py-2 rounded-lg font-medium"
+                    style={{ background: 'var(--color-surface-raise)', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)', fontSize: 13 }}>
+                    Cancel
+                  </button>
+                  <SubmitButton loading={isSubmitting} label="Send reset link" loadingLabel="Sending…" flex />
+                </div>
+              </form>
+            ) : (
+              <div className="space-y-4">
+                <div className="rounded-lg px-3 py-2" style={{ background: 'rgba(90,191,138,0.1)', border: '1px solid rgba(90,191,138,0.3)', color: 'var(--color-positive)', fontSize: 12 }}>
                   {successMsg}
                 </div>
-              )}
-
-              <div className="flex gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={closeReset}
-                  className="flex-1 py-2 rounded-lg font-medium"
-                  style={{ background: 'var(--color-surface-raise)', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)', fontSize: 13 }}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="flex-1 py-2 rounded-lg font-semibold transition-opacity disabled:opacity-60"
-                  style={{ background: 'var(--color-accent)', color: '#000', fontSize: 13 }}
-                >
-                  {isSubmitting ? 'Resetting…' : 'Reset password'}
+                <button onClick={closeForgot} className="w-full py-2 rounded-lg font-medium"
+                  style={{ background: 'var(--color-accent)', color: '#000', fontSize: 13 }}>
+                  Done
                 </button>
               </div>
-            </form>
+            )}
           </div>
         </div>
       )}
     </div>
+  )
+}
+
+function ErrorBox({ msg }: { msg: string }) {
+  return (
+    <div className="rounded-lg px-3 py-2" style={{ background: 'rgba(232,96,96,0.1)', border: '1px solid rgba(232,96,96,0.3)', color: 'var(--color-negative)', fontSize: 12 }}>
+      {msg}
+    </div>
+  )
+}
+
+function SubmitButton({ loading, label, loadingLabel, flex }: { loading: boolean; label: string; loadingLabel: string; flex?: boolean }) {
+  return (
+    <button type="submit" disabled={loading}
+      className={`${flex ? 'flex-1' : 'w-full'} py-2.5 rounded-lg font-semibold transition-opacity disabled:opacity-60`}
+      style={{ background: 'var(--color-accent)', color: '#000', fontSize: 14, marginTop: flex ? 0 : 8 }}>
+      {loading ? loadingLabel : label}
+    </button>
   )
 }

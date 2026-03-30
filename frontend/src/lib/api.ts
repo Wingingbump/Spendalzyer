@@ -10,16 +10,32 @@ export const api = axios.create({
   },
 })
 
-// Response interceptor: redirect to /login on 401 (except auth endpoints)
+// Response interceptor: try token refresh on 401, retry once; signal logout if refresh fails
+let _refreshing: Promise<void> | null = null
+
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      const url = error.config?.url || ''
-      if (!url.includes('/auth/me') && !url.includes('/auth/login') && !url.includes('/auth/register')) {
-        window.location.href = '/login'
+  async (error) => {
+    const url: string = error.config?.url || ''
+    const isAuthEndpoint = url.includes('/auth/login') || url.includes('/auth/register') || url.includes('/auth/refresh') || url.includes('/auth/me')
+
+    if (error.response?.status === 401 && !isAuthEndpoint && !error.config?._retried) {
+      if (!_refreshing) {
+        _refreshing = api.post('/auth/refresh').then(() => undefined)
+      }
+      try {
+        await _refreshing
+        _refreshing = null
+        return api({ ...error.config, _retried: true })
+      } catch {
+        _refreshing = null
+        // Dispatch a soft logout event instead of hard-reloading — prevents the
+        // reload loop where every reload restarts the failing auth cycle.
+        window.dispatchEvent(new Event('auth:logout'))
+        return Promise.reject(error)
       }
     }
+
     return Promise.reject(error)
   }
 )
@@ -157,17 +173,26 @@ export const authApi = {
   login: (username: string, password: string) =>
     api.post<User>('/auth/login', { username, password }).then((r) => r.data),
 
-  register: (username: string, password: string) =>
-    api.post<User>('/auth/register', { username, password }).then((r) => r.data),
+  register: (username: string, password: string, first_name: string, last_name: string, email: string, phone: string) =>
+    api.post<{ message: string }>('/auth/register', { username, password, first_name, last_name, email, phone }).then((r) => r.data),
+
+  verifyEmail: (token: string) =>
+    api.post<User>('/auth/verify-email', { token }).then((r) => r.data),
+
+  resendVerification: (email: string) =>
+    api.post<{ message: string }>('/auth/resend-verification', { email }).then((r) => r.data),
+
+  forgotPassword: (email: string) =>
+    api.post<{ message: string }>('/auth/forgot-password', { email }).then((r) => r.data),
+
+  resetPassword: (token: string, new_password: string) =>
+    api.post<{ ok: boolean }>('/auth/reset-password', { token, new_password }).then((r) => r.data),
 
   logout: () =>
     api.post<{ ok: boolean }>('/auth/logout').then((r) => r.data),
 
   me: () =>
     api.get<User>('/auth/me').then((r) => r.data),
-
-  resetPassword: (username: string, new_password: string, reset_secret: string) =>
-    api.post<{ ok: boolean }>('/auth/reset-password', { username, new_password, reset_secret }).then((r) => r.data),
 }
 
 // ─── Insights ────────────────────────────────────────────────────────────────
@@ -238,6 +263,15 @@ export const merchantsApi = {
 
   detail: (name: string, params?: FilterParams) =>
     api.get<Transaction[]>(`/merchants/${encodeURIComponent(name)}`, { params: cleanParams(params) }).then((r) => r.data),
+
+  overrides: () =>
+    api.get<Record<string, string>>('/merchants/overrides').then((r) => r.data),
+
+  saveOverride: (rawName: string, displayName: string) =>
+    api.put(`/merchants/overrides/${encodeURIComponent(rawName)}`, { display_name: displayName }).then((r) => r.data),
+
+  deleteOverride: (rawName: string) =>
+    api.delete(`/merchants/overrides/${encodeURIComponent(rawName)}`).then((r) => r.data),
 }
 
 // ─── Categories ──────────────────────────────────────────────────────────────
@@ -291,6 +325,18 @@ export const syncApi = {
 
 // ─── Settings ────────────────────────────────────────────────────────────────
 
+export interface UserProfile {
+  id: number
+  username: string
+  first_name: string
+  last_name: string
+  email: string
+  phone: string
+  avatar_url: string | null
+  email_verified: boolean
+  created_at: string
+}
+
 export const settingsApi = {
   changePassword: (current_password: string, new_password: string) =>
     api.put<{ ok: boolean }>('/settings/password', { current_password, new_password }).then((r) => r.data),
@@ -306,6 +352,20 @@ export const settingsApi = {
 
   cancelDeletion: () =>
     api.post<{ ok: boolean }>('/settings/cancel-deletion').then((r) => r.data),
+
+  getProfile: () =>
+    api.get<UserProfile>('/settings/profile').then((r) => r.data),
+
+  updateProfile: (first_name: string, last_name: string, phone: string) =>
+    api.put<{ ok: boolean }>('/settings/profile', { first_name, last_name, phone }).then((r) => r.data),
+
+  uploadAvatar: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return api.post<{ avatar_url: string }>('/settings/avatar', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then((r) => r.data)
+  },
 }
 
 // ─── Canvas ──────────────────────────────────────────────────────────────────

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
+import { api } from '../lib/api'
 
 // Override via VITE_IDLE_TIMEOUT_MS in .env for testing (e.g. VITE_IDLE_TIMEOUT_MS=30000)
 const TIMEOUT_MS = parseInt(import.meta.env.VITE_IDLE_TIMEOUT_MS ?? '') || 15 * 60 * 1000
@@ -50,6 +51,9 @@ export function useIdleTimeout(onLogout: () => void) {
     warningShowing.current = false
     setShowWarning(false)
     clearCountdown()
+
+    // Refresh the access token so the backend session stays alive
+    api.post('/auth/refresh').catch(() => {})
 
     if (idleTimer.current) clearTimeout(idleTimer.current)
     idleTimer.current = setTimeout(startCountdown, TIMEOUT_MS - WARNING_MS)
