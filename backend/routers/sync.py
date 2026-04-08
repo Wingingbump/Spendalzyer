@@ -1,13 +1,16 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from backend.dependencies import get_current_user
+from backend.limiter import limiter
 from core.db import get_last_synced_at
 
 router = APIRouter(prefix="/sync", tags=["sync"])
 
 
 @router.post("")
+@limiter.limit("5/minute")
 def sync(
+    request: Request,
     current_user: dict = Depends(get_current_user),
     full_sync: bool = Query(False),
 ):

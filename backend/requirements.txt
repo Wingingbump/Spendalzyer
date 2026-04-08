@@ -4,6 +4,7 @@ python-jose[cryptography]>=3.3.0
 python-multipart>=0.0.12
 psycopg2-binary>=2.9.10
 anthropic>=0.85.0
+voyageai>=0.3.0
 plaid-python>=38.4.0
 pandas>=2.3.0
 numpy>=2.4.0

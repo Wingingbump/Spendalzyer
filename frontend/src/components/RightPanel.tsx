@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Plus, Trash2, X, ChevronRight, ChevronLeft,
-  Layers, Target, RefreshCw, Clock, BarChart2,
+  Layers, Target, RefreshCw, Clock, BarChart2, Bot, Send,
 } from 'lucide-react'
-import { workspaceApi, transactionsApi, insightsApi } from '../lib/api'
-import type { CustomGroup } from '../lib/api'
+import { workspaceApi, transactionsApi, insightsApi, advisorApi, ledgerApi } from '../lib/api'
+import type { CustomGroup, Goal, LedgerRow } from '../lib/api'
 import { useWorkspace } from '../context/WorkspaceContext'
 import { useFilters } from '../context/FilterContext'
 import { formatCurrency, formatDate, CHART_COLORS_DARK } from '../lib/utils'
@@ -18,22 +18,23 @@ export const PANEL_WIDTH = 300
 type TabId = 'recent' | 'insights' | 'budgets' | 'recurring' | 'groups'
 
 const ROUTE_TABS: Record<string, TabId[]> = {
-  '/overview':     ['recent',   'budgets',   'recurring'],
-  '/transactions': ['insights', 'groups',    'budgets'],
-  '/ledger':       ['recurring','budgets',   'groups'],
-  '/categories':   ['budgets',  'recurring', 'groups'],
-  '/merchants':    ['budgets',  'recurring', 'groups'],
-  '/canvas':       ['groups',   'budgets',   'recurring'],
-  '/settings':     ['budgets',  'recurring', 'groups'],
+  '/overview':     ['recent',    'budgets',   'recurring'],
+  '/transactions': ['insights',  'groups',    'budgets'],
+  '/ledger':       ['recurring', 'budgets',   'groups'],
+  '/categories':   ['budgets',   'recurring', 'groups'],
+  '/merchants':    ['budgets',   'recurring', 'groups'],
+  '/canvas':       ['groups',    'budgets',   'recurring'],
+  '/advisor':      ['budgets',   'recent',    'insights'],
+  '/settings':     ['budgets',   'recurring', 'groups'],
 }
 const DEFAULT_TABS: TabId[] = ['budgets', 'recurring', 'groups']
 
 const TAB_LABEL: Record<TabId, string> = {
-  recent:   'Recent',
-  insights: 'Insights',
-  budgets:  'Budgets',
-  recurring:'Recurring',
-  groups:   'Groups',
+  recent:    'Recent',
+  insights:  'Insights',
+  budgets:   'Budgets',
+  recurring: 'Recurring',
+  groups:    'Groups',
 }
 
 const CATEGORIES = [
@@ -139,7 +140,6 @@ function InsightsTab() {
 
   return (
     <div className="space-y-5">
-      {/* Quick stats */}
       <div className="grid grid-cols-2 gap-2">
         {[
           { label: 'Total', value: summary?.total_spent, loading: loadingSummary },
@@ -155,7 +155,6 @@ function InsightsTab() {
         ))}
       </div>
 
-      {/* Category bars */}
       <div>
         <p style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
           By Category
@@ -191,7 +190,7 @@ function InsightsTab() {
   )
 }
 
-// ── Recurring section ─────────────────────────────────────────────────────────
+// ── Recurring tab ─────────────────────────────────────────────────────────────
 
 function RecurringTab() {
   const { data: recurring = [], isLoading } = useQuery({
@@ -240,6 +239,362 @@ function RecurringTab() {
   )
 }
 
+// ── Goals section (inside Budget tab) ────────────────────────────────────────
+
+function GoalsSection() {
+  const qc = useQueryClient()
+  const [adding, setAdding] = useState(false)
+  const [newTitle, setNewTitle] = useState('')
+  const [newTarget, setNewTarget] = useState('')
+  const [newDeadline, setNewDeadline] = useState('')
+  // id → { step: 'pick' | 'amount', sourceTx: LedgerRow | null, amountStr: string }
+  const [progressState, setProgressState] = useState<Record<number, {
+    step: 'pick' | 'amount'
+    sourceTx: LedgerRow | null
+    amountStr: string
+  }>>({})
+
+  const { data: incomeTxs = [] } = useQuery({
+    queryKey: ['income-sources'],
+    queryFn: async () => {
+      const res = await ledgerApi.list({ range: '60d', types: 'credit', show_transfers: false })
+      return res.rows.filter((r) => !r.is_transfer && r.amount < 0).slice(0, 20)
+    },
+    staleTime: 60_000,
+    enabled: Object.keys(progressState).length > 0,
+  })
+
+  const { data: goals = [] } = useQuery({
+    queryKey: ['goals', 'active'],
+    queryFn: () => advisorApi.listGoals('active'),
+    staleTime: 30_000,
+  })
+
+  const createMutation = useMutation({
+    mutationFn: (g: { title: string; target_amount?: number; deadline?: string }) =>
+      advisorApi.createGoal(g),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['goals'] })
+      setAdding(false)
+      setNewTitle('')
+      setNewTarget('')
+      setNewDeadline('')
+    },
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, current_amount }: { id: number; current_amount: number }) =>
+      advisorApi.updateGoal(id, { current_amount }),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['goals'] })
+      setProgressState((p) => { const n = { ...p }; delete n[vars.id]; return n })
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => advisorApi.deleteGoal(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['goals'] }),
+  })
+
+  const handleAdd = () => {
+    if (!newTitle.trim()) return
+    const target = newTarget ? parseFloat(newTarget) : undefined
+    createMutation.mutate({
+      title: newTitle.trim(),
+      target_amount: target && !isNaN(target) ? target : undefined,
+      deadline: newDeadline || undefined,
+    })
+  }
+
+  const openProgress = (id: number) =>
+    setProgressState((p) => ({ ...p, [id]: { step: 'pick', sourceTx: null, amountStr: '' } }))
+
+  const closeProgress = (id: number) =>
+    setProgressState((p) => { const n = { ...p }; delete n[id]; return n })
+
+  const selectSource = (id: number, tx: LedgerRow | null) =>
+    setProgressState((p) => ({
+      ...p,
+      [id]: {
+        step: 'amount',
+        sourceTx: tx,
+        amountStr: tx ? String(Math.abs(tx.amount)) : '',
+      },
+    }))
+
+  const handleAddProgress = (g: Goal) => {
+    const state = progressState[g.id]
+    if (!state) return
+    const delta = parseFloat(state.amountStr)
+    if (isNaN(delta) || delta <= 0) return
+    updateMutation.mutate({ id: g.id, current_amount: Math.max(0, g.current_amount + delta) })
+  }
+
+  return (
+    <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--color-border)' }}>
+      <p style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
+        Goals
+      </p>
+
+      {goals.length === 0 && !adding && (
+        <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginBottom: 8 }}>No active goals.</p>
+      )}
+
+      <div className="space-y-4">
+        {goals.map((g: Goal) => {
+          const pct = g.target_amount
+            ? Math.min((g.current_amount / g.target_amount) * 100, 100)
+            : null
+          const daysLeft = g.deadline
+            ? Math.ceil((new Date(g.deadline).getTime() - Date.now()) / 86_400_000)
+            : null
+          const ps = progressState[g.id]
+
+          return (
+            <div key={g.id}>
+              <div className="flex items-center justify-between mb-1">
+                <span style={{ fontSize: 12, color: 'var(--color-text-secondary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {g.title}
+                </span>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {daysLeft !== null && (
+                    <span style={{ fontSize: 10, color: daysLeft < 30 ? '#e8c17a' : 'var(--color-text-muted)' }}>
+                      {daysLeft > 0 ? `${daysLeft}d` : 'due'}
+                    </span>
+                  )}
+                  {g.target_amount !== null && !ps && (
+                    <button
+                      onClick={() => openProgress(g.id)}
+                      title="Add progress"
+                      style={{ color: 'var(--color-text-muted)', lineHeight: 1 }}
+                    >
+                      <Plus size={11} />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => deleteMutation.mutate(g.id)}
+                    style={{ color: 'var(--color-text-muted)', lineHeight: 1 }}
+                  >
+                    <Trash2 size={11} />
+                  </button>
+                </div>
+              </div>
+
+              {pct !== null && g.target_amount !== null && (
+                <>
+                  <ProgressBar value={g.current_amount} max={g.target_amount} color="var(--color-accent)" />
+                  <div className="flex justify-between mt-0.5">
+                    <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--color-text-muted)' }}>
+                      {formatCurrency(g.current_amount)} / {formatCurrency(g.target_amount)}
+                    </span>
+                    <span style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>{pct.toFixed(0)}%</span>
+                  </div>
+                </>
+              )}
+
+              {/* Step 1 — pick an income source */}
+              {ps?.step === 'pick' && (
+                <div
+                  className="mt-2 rounded-lg p-2 space-y-1"
+                  style={{ background: 'var(--color-surface-raise)', border: '1px solid var(--color-border)' }}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                      Log from income
+                    </span>
+                    <button onClick={() => closeProgress(g.id)} style={{ color: 'var(--color-text-muted)' }}>
+                      <X size={11} />
+                    </button>
+                  </div>
+
+                  {incomeTxs.length === 0 ? (
+                    <p style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>No recent income found.</p>
+                  ) : (
+                    incomeTxs.slice(0, 6).map((tx) => (
+                      <button
+                        key={tx.id}
+                        onClick={() => selectSource(g.id, tx)}
+                        className="w-full flex items-center justify-between rounded-md px-2 py-1.5"
+                        style={{
+                          background: 'var(--color-surface)',
+                          border: '1px solid var(--color-border)',
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                        }}
+                      >
+                        <div>
+                          <p style={{ fontSize: 11, color: 'var(--color-text-primary)', fontWeight: 500 }}>
+                            {tx.merchant_normalized || tx.name}
+                          </p>
+                          <p style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>{tx.date}</p>
+                        </div>
+                        <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#4ade80', fontWeight: 600, flexShrink: 0, marginLeft: 8 }}>
+                          +{formatCurrency(Math.abs(tx.amount))}
+                        </span>
+                      </button>
+                    ))
+                  )}
+
+                  <button
+                    onClick={() => selectSource(g.id, null)}
+                    className="w-full text-center"
+                    style={{ fontSize: 11, color: 'var(--color-text-muted)', paddingTop: 4, cursor: 'pointer' }}
+                  >
+                    Enter amount manually →
+                  </button>
+                </div>
+              )}
+
+              {/* Step 2 — confirm amount */}
+              {ps?.step === 'amount' && (() => {
+                const maxAmount = ps.sourceTx ? Math.abs(ps.sourceTx.amount) : undefined
+                const enteredVal = parseFloat(ps.amountStr)
+                const overLimit = maxAmount !== undefined && !isNaN(enteredVal) && enteredVal > maxAmount
+                const invalid = !ps.amountStr || isNaN(enteredVal) || enteredVal <= 0 || overLimit
+                return (
+                  <div
+                    className="mt-2 rounded-lg p-2.5 space-y-2"
+                    style={{ background: 'var(--color-surface-raise)', border: '1px solid var(--color-border)' }}
+                  >
+                    {ps.sourceTx && (
+                      <p style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>
+                        From <span style={{ color: 'var(--color-text-primary)' }}>{ps.sourceTx.merchant_normalized || ps.sourceTx.name}</span>
+                        {' · '}<span style={{ color: '#4ade80' }}>+{formatCurrency(maxAmount!)}</span>
+                      </p>
+                    )}
+
+                    <div className="flex items-center gap-1.5">
+                      <span style={{ fontSize: 12, color: 'var(--color-text-muted)', flexShrink: 0 }}>+$</span>
+                      <input
+                        type="number"
+                        autoFocus
+                        placeholder="0.00"
+                        value={ps.amountStr}
+                        onChange={(e) => {
+                          const raw = e.target.value
+                          const val = parseFloat(raw)
+                          // Clamp to source max if present
+                          const clamped = maxAmount !== undefined && !isNaN(val) && val > maxAmount
+                            ? String(maxAmount)
+                            : raw
+                          setProgressState((prev) => ({
+                            ...prev,
+                            [g.id]: { ...prev[g.id], amountStr: clamped },
+                          }))
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !invalid) handleAddProgress(g)
+                          if (e.key === 'Escape') closeProgress(g.id)
+                        }}
+                        min="0"
+                        max={maxAmount}
+                        step="1"
+                        style={{
+                          fontSize: 13, flex: 1, padding: '5px 8px', borderRadius: 7,
+                          border: `1px solid ${overLimit ? '#f87171' : 'var(--color-accent)'}`,
+                          background: 'var(--color-surface)',
+                          color: 'var(--color-text-primary)', outline: 'none',
+                        }}
+                      />
+                    </div>
+
+                    {overLimit && (
+                      <p style={{ fontSize: 10, color: '#f87171' }}>
+                        Can't exceed the income amount ({formatCurrency(maxAmount!)})
+                      </p>
+                    )}
+
+                    <div className="flex gap-1.5">
+                      <button
+                        onClick={() => handleAddProgress(g)}
+                        disabled={updateMutation.isPending || invalid}
+                        style={{
+                          flex: 1, fontSize: 12, padding: '5px 0', borderRadius: 7,
+                          background: invalid ? 'var(--color-surface)' : 'var(--color-accent)',
+                          color: invalid ? 'var(--color-text-muted)' : '#fff',
+                          border: `1px solid ${invalid ? 'var(--color-border)' : 'var(--color-accent)'}`,
+                          cursor: invalid ? 'default' : 'pointer',
+                          fontWeight: 500, transition: 'background 0.15s',
+                        }}
+                      >
+                        {updateMutation.isPending ? 'Saving…' : 'Save'}
+                      </button>
+                      <button
+                        onClick={() => closeProgress(g.id)}
+                        style={{
+                          fontSize: 12, padding: '5px 10px', borderRadius: 7,
+                          background: 'transparent', color: 'var(--color-text-muted)',
+                          border: '1px solid var(--color-border)', cursor: 'pointer',
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+
+                    {ps.sourceTx && (
+                      <button
+                        onClick={() => setProgressState((p) => ({ ...p, [g.id]: { ...p[g.id], step: 'pick' } }))}
+                        style={{ fontSize: 10, color: 'var(--color-text-muted)', cursor: 'pointer' }}
+                      >
+                        ← Pick different source
+                      </button>
+                    )}
+                  </div>
+                )
+              })()}
+            </div>
+          )
+        })}
+      </div>
+
+      {adding ? (
+        <div className="space-y-2 mt-3">
+          <input
+            type="text" placeholder="Goal name" value={newTitle} autoFocus
+            onChange={(e) => setNewTitle(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+            style={{ fontSize: 12, width: '100%' }}
+          />
+          <input
+            type="number" placeholder="Target amount (optional)" value={newTarget}
+            onChange={(e) => setNewTarget(e.target.value)} step="100" min="0"
+            style={{ fontSize: 12, width: '100%' }}
+          />
+          <input
+            type="date" value={newDeadline}
+            onChange={(e) => setNewDeadline(e.target.value)}
+            style={{ fontSize: 12, width: '100%' }}
+          />
+          <div className="flex gap-1.5">
+            <button
+              onClick={handleAdd} disabled={createMutation.isPending || !newTitle.trim()}
+              className="flex-1 rounded-md font-medium"
+              style={{ background: 'var(--color-accent)', color: '#fff', padding: '5px 0', fontSize: 12 }}
+            >
+              {createMutation.isPending ? 'Saving…' : 'Save'}
+            </button>
+            <button
+              onClick={() => { setAdding(false); setNewTitle(''); setNewTarget(''); setNewDeadline('') }}
+              className="rounded-md"
+              style={{ background: 'var(--color-surface-raise)', color: 'var(--color-text-muted)', padding: '5px 10px', fontSize: 12 }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={() => setAdding(true)}
+          className="flex items-center gap-1.5 mt-2"
+          style={{ fontSize: 12, color: 'var(--color-text-muted)' }}
+        >
+          <Plus size={12} /> New goal
+        </button>
+      )}
+    </div>
+  )
+}
+
 // ── Budget tab ────────────────────────────────────────────────────────────────
 
 function BudgetTab() {
@@ -271,14 +626,56 @@ function BudgetTab() {
     upsertMutation.mutate({ category: newCategory, amount: amt })
   }
 
+  // Monthly summary stats
+  const today = new Date()
+  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate()
+  const daysLeft = daysInMonth - today.getDate()
+  const totalBudgeted = budgets.reduce((s, b) => s + b.amount, 0)
+  const totalSpent = budgets.reduce((s, b) => s + b.spent, 0)
+  const overallPct = totalBudgeted > 0 ? (totalSpent / totalBudgeted) * 100 : 0
+
   return (
     <div className="space-y-3">
+      {/* Monthly summary */}
+      {budgets.length > 0 && (
+        <div
+          className="rounded-xl p-3 space-y-2"
+          style={{ background: 'var(--color-surface-raise)', border: '1px solid var(--color-border)' }}
+        >
+          <div className="flex items-center justify-between">
+            <span style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>
+              {daysLeft} days left this month
+            </span>
+            <span style={{
+              fontSize: 11,
+              fontWeight: 600,
+              fontFamily: 'monospace',
+              color: overallPct > 90 ? 'var(--color-negative)' : overallPct > 75 ? '#e8c17a' : 'var(--color-positive)',
+            }}>
+              {overallPct.toFixed(0)}%
+            </span>
+          </div>
+          <ProgressBar value={totalSpent} max={totalBudgeted} />
+          <div className="flex justify-between">
+            <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--color-text-secondary)' }}>
+              {formatCurrency(totalSpent)} spent
+            </span>
+            <span style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>
+              of {formatCurrency(totalBudgeted)}
+            </span>
+          </div>
+        </div>
+      )}
+
       {budgets.length === 0 && !adding && (
         <p style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>No budgets set.</p>
       )}
 
+      {/* Individual budget rows */}
       {budgets.map((b) => {
         const over = b.spent > b.amount
+        const pct = b.amount > 0 ? Math.min((b.spent / b.amount) * 100, 100) : 0
+        const diff = Math.abs(b.amount - b.spent)
         return (
           <div key={b.category}>
             <div className="flex items-center justify-between mb-1">
@@ -286,8 +683,12 @@ function BudgetTab() {
                 {b.category}
               </span>
               <div className="flex items-center gap-2 flex-shrink-0">
-                <span style={{ fontSize: 11, fontFamily: 'monospace', color: over ? 'var(--color-negative)' : 'var(--color-text-muted)' }}>
-                  {formatCurrency(b.spent)}/{formatCurrency(b.amount)}
+                <span style={{
+                  fontSize: 10,
+                  fontWeight: 500,
+                  color: over ? 'var(--color-negative)' : 'var(--color-positive)',
+                }}>
+                  {over ? `$${diff.toFixed(0)} over` : `$${diff.toFixed(0)} left`}
                 </span>
                 <button onClick={() => deleteMutation.mutate(b.category)} style={{ color: 'var(--color-text-muted)', lineHeight: 1 }}>
                   <Trash2 size={11} />
@@ -295,10 +696,17 @@ function BudgetTab() {
               </div>
             </div>
             <ProgressBar value={b.spent} max={b.amount} />
+            <div className="flex justify-between mt-0.5">
+              <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--color-text-muted)' }}>
+                {formatCurrency(b.spent)} / {formatCurrency(b.amount)}
+              </span>
+              <span style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>{pct.toFixed(0)}%</span>
+            </div>
           </div>
         )
       })}
 
+      {/* Add budget form */}
       {adding ? (
         <div className="space-y-2">
           <select value={newCategory} onChange={(e) => setNewCategory(e.target.value)} style={{ fontSize: 12, width: '100%' }}>
@@ -326,6 +734,9 @@ function BudgetTab() {
           <Plus size={12} /> Add budget
         </button>
       )}
+
+      {/* Goals subsection */}
+      <GoalsSection />
     </div>
   )
 }
@@ -518,14 +929,121 @@ export function ActiveGroupBanner() {
   )
 }
 
+// ── Advisor widget (pinned at panel bottom) ───────────────────────────────────
+
+function AdvisorWidget() {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const [input, setInput] = useState('')
+
+  // Hide on advisor page — redundant there
+  if (location.pathname === '/advisor') return null
+
+  const quickPrompts = [
+    { label: 'Review this month', q: "Review my spending this month and tell me how I'm doing." },
+    { label: 'Check goals', q: 'How am I tracking toward my financial goals?' },
+    { label: 'Spending tips', q: 'Based on my transactions, what spending habits should I improve?' },
+  ]
+
+  const go = (message: string) => {
+    if (!message.trim()) return
+    navigate(`/advisor?q=${encodeURIComponent(message.trim())}`)
+  }
+
+  return (
+    <div
+      className="flex-shrink-0"
+      style={{ borderTop: '1px solid var(--color-border)', padding: '12px 16px 14px' }}
+    >
+      {/* Header */}
+      <div className="flex items-center gap-2 mb-2.5">
+        <div
+          className="flex items-center justify-center rounded-full flex-shrink-0"
+          style={{ width: 20, height: 20, background: 'var(--color-accent)' }}
+        >
+          <Bot size={11} color="#fff" />
+        </div>
+        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)' }}>
+          Ask your advisor
+        </span>
+      </div>
+
+      {/* Quick chips */}
+      <div className="flex gap-1.5 mb-2.5 flex-wrap">
+        {quickPrompts.map((p) => (
+          <button
+            key={p.label}
+            onClick={() => go(p.q)}
+            className="rounded-full"
+            style={{
+              fontSize: 10,
+              fontWeight: 500,
+              padding: '3px 10px',
+              background: 'var(--color-surface-raise)',
+              border: '1px solid var(--color-border)',
+              color: 'var(--color-text-secondary)',
+              cursor: 'pointer',
+              transition: 'border-color 0.15s',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--color-accent)')}
+            onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--color-border)')}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Free-text input */}
+      <div className="flex gap-1.5 items-center">
+        <input
+          type="text"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && go(input)}
+          placeholder="Ask anything…"
+          style={{
+            flex: 1,
+            fontSize: 12,
+            borderRadius: 8,
+            padding: '6px 10px',
+            background: 'var(--color-surface-raise)',
+            border: '1px solid var(--color-border)',
+            color: 'var(--color-text-primary)',
+          }}
+        />
+        <button
+          onClick={() => go(input)}
+          disabled={!input.trim()}
+          style={{
+            width: 28,
+            height: 28,
+            borderRadius: 8,
+            flexShrink: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: input.trim() ? 'var(--color-accent)' : 'var(--color-surface-raise)',
+            border: '1px solid var(--color-border)',
+            color: input.trim() ? '#fff' : 'var(--color-text-muted)',
+            cursor: input.trim() ? 'pointer' : 'default',
+            transition: 'background 0.15s, color 0.15s',
+          }}
+        >
+          <Send size={12} />
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── Tab icon map ──────────────────────────────────────────────────────────────
 
 const TAB_ICON: Record<TabId, React.ElementType> = {
-  recent:   Clock,
-  insights: BarChart2,
-  budgets:  Target,
-  recurring:RefreshCw,
-  groups:   Layers,
+  recent:    Clock,
+  insights:  BarChart2,
+  budgets:   Target,
+  recurring: RefreshCw,
+  groups:    Layers,
 }
 
 // ── Main panel ────────────────────────────────────────────────────────────────
@@ -545,7 +1063,6 @@ export default function RightPanel({ isOpen, onToggle }: RightPanelProps) {
   const tabs = ROUTE_TABS[location.pathname] ?? DEFAULT_TABS
   const [activeTab, setActiveTab] = useState<TabId>(tabs[0])
 
-  // Reset to first tab when route changes
   useEffect(() => {
     const newTabs = ROUTE_TABS[location.pathname] ?? DEFAULT_TABS
     setActiveTab(newTabs[0])
@@ -553,7 +1070,7 @@ export default function RightPanel({ isOpen, onToggle }: RightPanelProps) {
 
   return (
     <div style={{ position: 'fixed', right: 0, top: 0, height: '100%', zIndex: 40 }}>
-      {/* Toggle arrow tab — always visible, sits outside the aside */}
+      {/* Toggle arrow */}
       <button
         onClick={onToggle}
         aria-label={isOpen ? 'Hide panel' : 'Show panel'}
@@ -595,7 +1112,6 @@ export default function RightPanel({ isOpen, onToggle }: RightPanelProps) {
           borderLeft: '1px solid var(--color-border)',
         }}
       >
-        {/* Inner content — fixed width so it doesn't squish during animation */}
         <div style={{ width: PANEL_WIDTH, height: '100%', display: 'flex', flexDirection: 'column' }}>
           {/* Tab bar */}
           <div
@@ -640,6 +1156,9 @@ export default function RightPanel({ isOpen, onToggle }: RightPanelProps) {
             {activeTab === 'recurring' && <RecurringTab />}
             {activeTab === 'groups'    && <GroupsTab />}
           </div>
+
+          {/* Advisor widget — pinned at bottom */}
+          <AdvisorWidget />
         </div>
       </aside>
     </div>

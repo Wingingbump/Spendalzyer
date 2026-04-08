@@ -12,6 +12,8 @@ import Merchants from './pages/Merchants'
 import Categories from './pages/Categories'
 import Settings from './pages/Settings'
 import Canvas from './pages/Canvas'
+import Advisor from './pages/Advisor'
+import Tracker from './pages/Tracker'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth()
@@ -103,6 +105,22 @@ export default function App() {
         element={
           <ProtectedRoute>
             <Canvas />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/advisor"
+        element={
+          <ProtectedRoute>
+            <Advisor />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/tracker"
+        element={
+          <ProtectedRoute>
+            <Tracker />
           </ProtectedRoute>
         }
       />

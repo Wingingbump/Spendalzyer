@@ -2,10 +2,11 @@ import os
 import uuid
 
 import httpx
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from backend.dependencies import get_current_user
+from backend.limiter import limiter
 from core.crypto import hash_password, verify_password
 from core.db import (
     get_deletion_scheduled_at, get_last_synced_at, get_user_by_id, get_user_profile,
@@ -48,7 +49,9 @@ def update_profile(body: ProfileBody, current_user: dict = Depends(get_current_u
 
 
 @router.post("/avatar")
+@limiter.limit("10/minute")
 async def upload_avatar(
+    request: Request,
     file: UploadFile = File(...),
     current_user: dict = Depends(get_current_user),
 ):
@@ -66,7 +69,7 @@ async def upload_avatar(
     }
     ext = mime_to_ext[file.content_type]
     filename = f"{current_user['id']}/{uuid.uuid4()}.{ext}"
-    data = await file.read()
+    data = await file.read(MAX_SIZE + 1)
     if len(data) > MAX_SIZE:
         raise HTTPException(status_code=413, detail="Avatar must be under 5 MB")
 
@@ -88,7 +91,8 @@ async def upload_avatar(
 
 
 @router.put("/password")
-def change_password(body: PasswordBody, current_user: dict = Depends(get_current_user)):
+@limiter.limit("5/minute")
+def change_password(request: Request, body: PasswordBody, current_user: dict = Depends(get_current_user)):
     from core.db import get_user_by_username
     user = get_user_by_username(current_user["username"])
     if not user:
@@ -113,7 +117,8 @@ def deletion_status(current_user: dict = Depends(get_current_user)):
 
 
 @router.post("/delete-account")
-def delete_account(current_user: dict = Depends(get_current_user)):
+@limiter.limit("3/minute")
+def delete_account(request: Request, current_user: dict = Depends(get_current_user)):
     schedule_user_deletion(current_user["id"])
     scheduled = get_deletion_scheduled_at(current_user["id"])
     return {"ok": True, "deletion_scheduled_at": scheduled.isoformat() if scheduled else None}

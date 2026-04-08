@@ -2,7 +2,7 @@ import os
 from typing import Optional
 
 import plaid
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from plaid.api import plaid_api
 from plaid.model.accounts_get_request import AccountsGetRequest
@@ -93,8 +93,17 @@ def get_link_token(current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail="An error occurred. Please try again.")
 
 
+def _background_sync(user_id: int) -> None:
+    try:
+        import services.pull as pull_service
+        pull_service.main(user_id, full_sync=False)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Post-link sync failed for user {user_id}: {e}")
+
+
 @router.post("/exchange")
-def exchange_token(body: ExchangeBody, current_user: dict = Depends(get_current_user)):
+def exchange_token(body: ExchangeBody, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
     verified_user_id = _verify_signed_token(body.signed_token)
     if not verified_user_id or verified_user_id != current_user["id"]:
         raise HTTPException(status_code=403, detail="Session expired or invalid signed token")
@@ -129,6 +138,7 @@ def exchange_token(body: ExchangeBody, current_user: dict = Depends(get_current_
                 for a in accounts_resp["accounts"]
             ],
         )
+        background_tasks.add_task(_background_sync, current_user["id"])
         return {"institution": body.institution}
     except plaid.ApiException:
         raise HTTPException(status_code=400, detail="Failed to exchange Plaid token")

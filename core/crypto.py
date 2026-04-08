@@ -1,21 +1,20 @@
 import os
 import base64
 from cryptography.fernet import Fernet
-from dotenv import load_dotenv, set_key
+from dotenv import load_dotenv
 
 load_dotenv()
 
-_DOTENV_PATH = ".env"
 _KEY_VAR = "ENCRYPTION_KEY"
 
 def _get_or_create_key() -> bytes:
     key = os.getenv(_KEY_VAR)
-    if key:
-        return key.encode()
-    new_key = Fernet.generate_key().decode()
-    set_key(_DOTENV_PATH, _KEY_VAR, new_key)
-    os.environ[_KEY_VAR] = new_key
-    return new_key.encode()
+    if not key:
+        raise RuntimeError(
+            f"{_KEY_VAR} is not set. Generate one with: "
+            "python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+        )
+    return key.encode()
 
 def _fernet() -> Fernet:
     return Fernet(_get_or_create_key())

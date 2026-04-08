@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
 from backend.dependencies import get_current_user
+from backend.limiter import limiter
 from core.db import list_connected_accounts, remove_connected_account, list_plaid_accounts
 
 router = APIRouter(prefix="/accounts", tags=["accounts"])
@@ -19,8 +20,9 @@ def get_accounts(current_user: dict = Depends(get_current_user)):
 
 
 @router.delete("/{account_id}")
-def delete_account(account_id: int, current_user: dict = Depends(get_current_user)):
-    remove_connected_account(account_id)
+@limiter.limit("10/minute")
+def delete_account(request: Request, account_id: int, current_user: dict = Depends(get_current_user)):
+    remove_connected_account(account_id, current_user["id"])
     return {"ok": True}
 
 

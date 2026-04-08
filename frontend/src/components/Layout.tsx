@@ -32,23 +32,32 @@ export default function Layout({ children }: LayoutProps) {
 
   return (
     <PanelContext.Provider value={{ panelOpen: effectivePanelOpen }}>
-    <div className="flex min-h-screen" style={{ background: 'var(--color-bg)', pointerEvents: showWarning ? 'none' : 'auto' }}>
-      <Sidebar />
-      <main
-        className="flex-1 overflow-auto"
+    <div className="flex min-h-screen" style={{ background: 'var(--color-bg)' }}>
+      {/* Blurred content layer — blur covers sidebar + main + right panel */}
+      <div
+        className="flex flex-1 min-h-screen"
         style={{
-          marginLeft: 220,
-          marginRight: effectivePanelOpen ? PANEL_WIDTH : 0,
-          minHeight: '100vh',
           filter: showWarning ? 'blur(6px)' : 'none',
-          transition: 'margin-right 0.25s ease, filter 0.3s ease',
+          transition: 'filter 0.3s ease',
+          pointerEvents: showWarning ? 'none' : 'auto',
         }}
       >
-        <div className="p-6">
-          {children}
-        </div>
-      </main>
-      <RightPanel isOpen={effectivePanelOpen} onToggle={handleToggle} />
+        <Sidebar />
+        <main
+          className="flex-1 overflow-auto"
+          style={{
+            marginLeft: 220,
+            marginRight: effectivePanelOpen ? PANEL_WIDTH : 0,
+            minHeight: '100vh',
+            transition: 'margin-right 0.25s ease',
+          }}
+        >
+          <div className="p-6">
+            {children}
+          </div>
+        </main>
+        <RightPanel isOpen={effectivePanelOpen} onToggle={handleToggle} />
+      </div>
 
       {showWarning && (
         <div
@@ -133,4 +142,5 @@ export default function Layout({ children }: LayoutProps) {
     </div>
     </PanelContext.Provider>
   )
+
 }

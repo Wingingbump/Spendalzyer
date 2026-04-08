@@ -1,7 +1,7 @@
 import os
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, EmailStr, Field
 
 from backend.auth import (
@@ -18,6 +18,7 @@ from core.db import (
     consume_refresh_token, store_refresh_token, revoke_user_refresh_tokens,
     create_email_verification_token, consume_email_verification_token,
     create_password_reset_token, consume_password_reset_token,
+    get_last_synced_at,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -46,9 +47,18 @@ class ResetPasswordBody(BaseModel):
     new_password: str = Field(min_length=8, max_length=128)
 
 
+def _background_sync(user_id: int) -> None:
+    try:
+        import services.pull as pull_service
+        pull_service.main(user_id, full_sync=False)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Background sync failed for user {user_id}: {e}")
+
+
 @router.post("/login")
 @limiter.limit("10/minute")
-def login(request: Request, body: LoginBody, response: Response):
+def login(request: Request, body: LoginBody, response: Response, background_tasks: BackgroundTasks):
     # Accept either username or email
     user = get_user_by_username(body.username) or get_user_by_email(body.username)
     if not user or not verify_password(body.password, user["password"]):
@@ -58,6 +68,13 @@ def login(request: Request, body: LoginBody, response: Response):
     if not user.get("is_active"):
         raise HTTPException(status_code=403, detail="Account is not active")
     set_auth_cookies(response, user["id"], user["username"])
+
+    # Auto-sync once per day on first login
+    import datetime
+    last = get_last_synced_at(user["id"])
+    if not last or str(last)[:10] < datetime.date.today().isoformat():
+        background_tasks.add_task(_background_sync, user["id"])
+
     return {"id": user["id"], "username": user["username"]}
 
 

@@ -10,10 +10,12 @@ import asyncio
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from starlette.middleware.base import BaseHTTPMiddleware
 
 load_dotenv()
 
@@ -33,6 +35,7 @@ from backend.routers import (
     settings,
     workspace,
     canvas,
+    advisor,
 )
 
 
@@ -58,6 +61,18 @@ app = FastAPI(title="PersonalSpend API", version="1.0.0", lifespan=lifespan, red
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next) -> Response:
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        return response
+
+
+app.add_middleware(SecurityHeadersMiddleware)
+
 # CORS
 frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
 app.add_middleware(
@@ -81,6 +96,7 @@ app.include_router(sync.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(workspace.router, prefix="/api")
 app.include_router(canvas.router, prefix="/api")
+app.include_router(advisor.router, prefix="/api")
 
 
 @app.get("/api/health")

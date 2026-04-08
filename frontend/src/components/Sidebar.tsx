@@ -11,6 +11,8 @@ import {
   RefreshCw,
   ChevronDown,
   LayoutGrid,
+  Bot,
+  Target,
 } from 'lucide-react'
 import { insightsApi, syncApi } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
@@ -24,6 +26,8 @@ const NAV_ITEMS = [
   { to: '/merchants', label: 'Merchants', icon: Store },
   { to: '/categories', label: 'Categories', icon: Tag },
   { to: '/canvas', label: 'Canvas', icon: LayoutGrid },
+  { to: '/advisor', label: 'Advisor', icon: Bot },
+  { to: '/tracker', label: 'Tracker', icon: Target },
   { to: '/settings', label: 'Settings', icon: Settings },
 ]
 
@@ -250,21 +254,6 @@ export default function Sidebar() {
           />
           {syncMutation.isPending ? 'Syncing…' : 'Sync Now'}
         </button>
-        <button
-          onClick={() => syncMutation.mutate({ fullSync: true })}
-          disabled={syncMutation.isPending}
-          className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm font-medium transition-opacity disabled:opacity-50"
-          style={{
-            background: 'transparent',
-            color: 'var(--color-text-muted)',
-            fontSize: 11,
-            border: '1px solid var(--color-border)',
-          }}
-        >
-          <RefreshCw size={11} />
-          Full sync (since 2024)
-        </button>
-
         {syncMutation.isSuccess && (
           <p className="mt-1.5" style={{ fontSize: 11, color: 'var(--color-positive)' }}>
             +{syncMutation.data?.synced_count ?? 0} transactions

@@ -1,3 +1,4 @@
+
 # CLAUDE.md — AI Financial Advisor
 
 ## The Vision
@@ -38,9 +39,7 @@ When a user sends a message, before the LLM sees anything, we need to assemble t
 7. Assemble all of this into a structured system prompt, then call Claude
 8. After generating a response, extract any new memory-worthy items and store them
 
-The system prompt has a specific structure — user identity, financial snapshot, goals, memories, knowledge, advice history, compliance rules — and these sections should stay distinct. Each one grounds the model differently.
-
-Every response then goes through a compliance check (see Regulatory Line below) before reaching the user.
+The system prompt has a specific structure — user identity, financial snapshot, goals, memories, knowledge, advice history, and tone guidance — and these sections should stay distinct. Each one grounds the model differently.
 
 ---
 
@@ -62,40 +61,17 @@ The database needs to capture who the user is across multiple dimensions that ev
 
 ---
 
-## The Regulatory Line
+## How the Advisor Should Talk
 
-This is non-negotiable and should inform every design decision.
+The advisor should be  **direct, specific, and actionable** . No hedging, no "consult a professional" cop-outs for straightforward questions. If someone asks "should I pay off my credit card or invest?", give them a real answer with their real numbers.
 
-We are a  **financial coaching and information product** , not a registered investment advisor (RIA). We stay firmly on the education and coaching side of the regulatory line.
-
-**The advisor can say things like:**
-
-* "Here's how Roth conversions work and what yours would look like mathematically"
-* "Based on your spending, you're on track to run out of emergency fund in 3 months"
-* "Historically, paying high-interest debt before investing has been mathematically better for most people"
-
-**The advisor must never say things like:**
-
-* "You should buy VTI"
-* "Sell your Apple stock now"
-* "Put 70% in equities"
-
-When the advisor gets close to that line, it should say "this is worth discussing with a CFP or CPA" and move on. Every AI response needs a compliance check pass — red flags (specific investment advice, guaranteed returns) get reworded, yellow flags (tax situations, legal questions) get a disclaimer.
-
----
-
-## What We're NOT Building
-
-* **Not a robo-advisor** — we don't manage money or execute trades
-* **Not a bank** — we don't hold funds or issue accounts
-* **Not training our own model** — base models are capable enough. Our moat is the context layer, not the model.
-* **Not giving specific investment advice** — coaching side of the regulatory line, always
+The one rule: **be honest when you don't know.** A confident wrong answer about taxes or investment returns is worse than saying "I'm not sure about that." Accuracy over confidence, always.
 
 ---
 
 ## Principles
 
-**Compliance first.** If a change could cause the AI to cross the regulatory line, flag it before building it.
+**Be direct.** The advisor should give specific, actionable advice with real numbers. No generic platitudes, no unnecessary hedging. If someone's spending $400/month on DoorDash and wants to save for a house, say that.
 
 **Memory is the product.** The quality of the advisor is directly proportional to the quality of memory retrieval. When choosing where to invest effort, memory accuracy wins over almost everything else.
 

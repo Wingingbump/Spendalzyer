@@ -498,6 +498,188 @@ export const workspaceApi = {
     api.delete<{ ok: boolean }>(`/workspace/groups/${groupId}/transactions/${encodeURIComponent(transactionId)}`).then((r) => r.data),
 }
 
+// ─── Advisor ─────────────────────────────────────────────────────────────────
+
+export interface Goal {
+  id: number
+  title: string
+  type: string
+  target_amount: number | null
+  current_amount: number
+  deadline: string | null
+  priority: number
+  status: string
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface UserFinancialProfile {
+  first_name?: string | null
+  last_name?: string | null
+  life_stage?: string | null
+  risk_tolerance?: string | null
+  income_estimate?: number | null
+  communication_style?: string | null
+  has_profile: boolean
+}
+
+export interface AdviceRecord {
+  id: number
+  prompt_summary: string | null
+  user_message: string | null
+  response_text: string
+  category: string | null
+  compliance_flags: string[]
+  user_reaction: string
+  outcome_notes: string | null
+  created_at: string
+}
+
+// ─── Tracker types ────────────────────────────────────────────────────────────
+
+export interface TrackerGoal {
+  id: number
+  title: string
+  type: string
+  target_amount: number | null
+  current_amount: number
+  deadline: string | null
+  priority: number
+  status: string
+  notes: string | null
+  pct: number | null
+  days_left: number | null
+  monthly_needed: number | null
+}
+
+export interface TrackerTransaction {
+  date: string
+  name: string
+  amount: number
+}
+
+export interface MonthlyTrend {
+  month: string
+  total: number
+}
+
+export interface TrackerBudget {
+  category: string
+  amount: number
+  spent: number
+  pace: number
+  top_transactions: TrackerTransaction[]
+  monthly_trend: MonthlyTrend[]
+}
+
+export interface TrackerRecurring {
+  name: string
+  amount: number
+  frequency: string
+}
+
+export interface TrackerSnapshot {
+  snapshot_date: string
+  income_estimate: number | null
+  total_expenses: number | null
+  savings_rate_pct: number | null
+}
+
+export interface TrackerSummary {
+  mtd_spent: number
+  mtd_pace: number
+  days_elapsed: number
+  days_in_month: number
+  total_budget: number
+  total_recurring_monthly: number
+}
+
+export interface TrackerData {
+  goals: TrackerGoal[]
+  budgets: TrackerBudget[]
+  recurring: TrackerRecurring[]
+  snapshots: TrackerSnapshot[]
+  summary: TrackerSummary
+}
+
+export const advisorApi = {
+  chat: (message: string, history?: Array<{ role: 'user' | 'assistant'; content: string }>) =>
+    api.post<{ response: string; advice_id: number; compliance_flags: string[]; actions: Array<{ label: string; message: string }> }>('/advisor/chat', { message, history: history ?? [] }).then((r) => r.data),
+
+  chatStream: (
+    message: string,
+    history: Array<{ role: 'user' | 'assistant'; content: string }>,
+    onDelta: (text: string) => void,
+    onCorrection: (text: string) => void,
+  ): Promise<{ advice_id: number; flags: string[]; actions: Array<{ label: string; message: string }> }> => {
+    const baseUrl = (import.meta as unknown as { env: { VITE_API_URL?: string } }).env.VITE_API_URL || '/api'
+    return new Promise((resolve, reject) => {
+      fetch(`${baseUrl}/advisor/chat/stream`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, history }),
+      }).then(async (response) => {
+        if (!response.ok) { reject(new Error(`HTTP ${response.status}`)); return }
+        if (!response.body) { reject(new Error('No response body')); return }
+
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() ?? ''
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue
+            try {
+              const data = JSON.parse(line.slice(6))
+              if (data.type === 'delta') onDelta(data.text)
+              else if (data.type === 'correction') onCorrection(data.text)
+              else if (data.type === 'done') resolve({ advice_id: data.advice_id, flags: data.flags, actions: data.actions ?? [] })
+              else if (data.type === 'error') reject(new Error(data.message))
+            } catch { /* malformed SSE line */ }
+          }
+        }
+      }).catch(reject)
+    })
+  },
+
+  listGoals: (status?: string) =>
+    api.get<Goal[]>('/advisor/goals', { params: status ? { status } : undefined }).then((r) => r.data),
+
+  createGoal: (goal: { title: string; type?: string; target_amount?: number | null; current_amount?: number; deadline?: string | null; priority?: number; notes?: string | null }) =>
+    api.post<{ id: number }>('/advisor/goals', goal).then((r) => r.data),
+
+  updateGoal: (id: number, updates: Partial<{ title: string; type: string; target_amount: number | null; current_amount: number; deadline: string | null; priority: number; status: string; notes: string | null }>) =>
+    api.put<{ ok: boolean }>(`/advisor/goals/${id}`, updates).then((r) => r.data),
+
+  deleteGoal: (id: number) =>
+    api.delete<{ ok: boolean }>(`/advisor/goals/${id}`).then((r) => r.data),
+
+  history: (limit = 20) =>
+    api.get<AdviceRecord[]>('/advisor/history', { params: { limit } }).then((r) => r.data),
+
+  reactToAdvice: (id: number, reaction: string, outcome_notes?: string) =>
+    api.patch<{ ok: boolean }>(`/advisor/history/${id}/reaction`, { reaction, outcome_notes }).then((r) => r.data),
+
+  getProfile: () =>
+    api.get<UserFinancialProfile>('/advisor/profile').then((r) => r.data),
+
+  updateProfile: (updates: Partial<Pick<UserFinancialProfile, 'life_stage' | 'risk_tolerance' | 'income_estimate' | 'communication_style'>>) =>
+    api.put<{ ok: boolean }>('/advisor/profile', updates).then((r) => r.data),
+
+  onboard: (message: string, history?: Array<{ role: 'user' | 'assistant'; content: string }>) =>
+    api.post<{ response: string; completed: boolean; options: string[] }>('/advisor/onboard', { message, history: history ?? [] }).then((r) => r.data),
+
+  tracker: () =>
+    api.get<TrackerData>('/advisor/tracker').then((r) => r.data),
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function cleanParams(params?: Record<string, unknown>): Record<string, string | number | boolean> | undefined {

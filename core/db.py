@@ -366,10 +366,125 @@ def _run_migrations():
             "CREATE INDEX IF NOT EXISTS refresh_tokens_user_idx ON refresh_tokens (user_id)"
         )
 
+        # ── Memory Layer ─────────────────────────────────────────────────────────
+        # Enable pgvector (ships with Supabase — no-op if already installed)
+        conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+
+        # User goals — structured financial goals
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_goals (
+                id             SERIAL PRIMARY KEY,
+                user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                title          TEXT NOT NULL,
+                type           TEXT NOT NULL DEFAULT 'other',
+                target_amount  NUMERIC(12,2),
+                current_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+                deadline       DATE,
+                priority       SMALLINT NOT NULL DEFAULT 3 CHECK (priority BETWEEN 1 AND 5),
+                status         TEXT NOT NULL DEFAULT 'active',
+                notes          TEXT,
+                created_at     TIMESTAMPTZ DEFAULT NOW(),
+                updated_at     TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+
+        # Financial events — significant moments worth remembering
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS financial_events (
+                id          SERIAL PRIMARY KEY,
+                user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                event_type  TEXT NOT NULL,
+                title       TEXT NOT NULL,
+                amount      NUMERIC(12,2),
+                event_date  DATE NOT NULL DEFAULT CURRENT_DATE,
+                description TEXT,
+                created_at  TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+
+        # User behavioral/preference profile — one row per user, upserted
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_profile (
+                user_id             INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                life_stage          TEXT,
+                risk_tolerance      TEXT,
+                income_estimate     NUMERIC(12,2),
+                savings_rate_pct    NUMERIC(5,2),
+                communication_style TEXT,
+                spending_triggers   JSONB NOT NULL DEFAULT '[]',
+                preferences         JSONB NOT NULL DEFAULT '{}',
+                updated_at          TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+
+        # Financial snapshots — periodic time-series state derived from Plaid
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS financial_snapshots (
+                id               SERIAL PRIMARY KEY,
+                user_id          INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                snapshot_date    DATE NOT NULL DEFAULT CURRENT_DATE,
+                income_estimate  NUMERIC(12,2),
+                total_expenses   NUMERIC(12,2),
+                savings_rate_pct NUMERIC(5,2),
+                total_debt       NUMERIC(12,2),
+                total_assets     NUMERIC(12,2),
+                net_worth        NUMERIC(12,2),
+                created_at       TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE (user_id, snapshot_date)
+            )
+        """)
+
+        # Conversation memory — semantic memory with pgvector embeddings.
+        # This is the beating heart of personalization — searched before every LLM call.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS conversation_memory (
+                id               SERIAL PRIMARY KEY,
+                user_id          INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                content          TEXT NOT NULL,
+                memory_type      TEXT NOT NULL DEFAULT 'context',
+                importance       SMALLINT NOT NULL DEFAULT 3 CHECK (importance BETWEEN 1 AND 5),
+                source           TEXT NOT NULL DEFAULT 'conversation',
+                embedding        VECTOR(512),
+                created_at       TIMESTAMPTZ DEFAULT NOW(),
+                last_accessed_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS conversation_memory_user_idx ON conversation_memory (user_id)"
+        )
+        # HNSW index for fast approximate nearest-neighbor search
+        conn.execute("""
+            DO $$ BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_indexes WHERE indexname = 'conversation_memory_embedding_idx'
+                ) THEN
+                    CREATE INDEX conversation_memory_embedding_idx
+                    ON conversation_memory USING hnsw (embedding vector_cosine_ops);
+                END IF;
+            END $$
+        """)
+
+        # Advice history — every AI response given, with user reaction and outcome
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS advice_history (
+                id               SERIAL PRIMARY KEY,
+                user_id          INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                prompt_summary   TEXT,
+                response_text    TEXT NOT NULL,
+                category         TEXT,
+                compliance_flags JSONB NOT NULL DEFAULT '[]',
+                user_reaction    TEXT NOT NULL DEFAULT 'unknown',
+                outcome_notes    TEXT,
+                created_at       TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+
         # ── Row-Level Security ───────────────────────────────────────────────────
         # Even if application code forgets WHERE user_id = %s, the DB blocks it.
         for table in ("transactions", "connected_accounts",
-                      "budgets", "canvases", "custom_groups", "category_map"):
+                      "budgets", "canvases", "custom_groups", "category_map",
+                      "user_goals", "financial_events", "user_profile",
+                      "financial_snapshots", "conversation_memory", "advice_history"):
             conn.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
             conn.execute(f"""
                 DO $$ BEGIN
@@ -699,8 +814,13 @@ def upsert_transactions(transactions: list[dict]):
             VALUES
                 (%(id)s, %(date)s, %(name)s, %(amount)s, %(category)s, %(pending)s,
                  %(institution)s, %(plaid_account_id)s, %(user_id)s)
-            ON CONFLICT (id) DO NOTHING
+            ON CONFLICT (id) DO UPDATE SET
+                pending     = EXCLUDED.pending,
+                amount      = EXCLUDED.amount,
+                name        = EXCLUDED.name,
+                date        = EXCLUDED.date
         """, transactions)
+
 
 
 # ── Overrides ────────────────────────────────────────────────────────────────────
@@ -849,11 +969,12 @@ def get_connected_account_by_name(name: str, user_id: int) -> dict | None:
     return dict(row) if row else None
 
 
-def remove_connected_account(account_id: int):
+def remove_connected_account(account_id: int, user_id: int):
     with get_conn() as conn:
-        conn.execute("SET LOCAL app.current_user_id = 'bypass'")
+        conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
         conn.execute(
-            "DELETE FROM connected_accounts WHERE id = %s", (account_id,)
+            "DELETE FROM connected_accounts WHERE id = %s AND user_id = %s",
+            (account_id, user_id),
         )
 
 
@@ -1087,6 +1208,310 @@ def get_deletion_scheduled_at(user_id: int):
             (user_id,)
         ).fetchone()
     return row["deletion_scheduled_at"] if row else None
+
+
+# ── User Goals ───────────────────────────────────────────────────────────────────
+
+def create_goal(user_id: int, title: str, type: str = 'other', target_amount: float = None,
+                current_amount: float = 0, deadline: str = None, priority: int = 3,
+                notes: str = None) -> int:
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
+        row = conn.execute("""
+            INSERT INTO user_goals
+                (user_id, title, type, target_amount, current_amount, deadline, priority, notes)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (user_id, title, type, target_amount, current_amount, deadline, priority, notes)
+        ).fetchone()
+    return row["id"]
+
+
+def list_goals(user_id: int, status: str = None) -> list[dict]:
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
+        if status:
+            rows = conn.execute(
+                "SELECT * FROM user_goals WHERE user_id = %s AND status = %s ORDER BY priority, created_at",
+                (user_id, status)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM user_goals WHERE user_id = %s ORDER BY priority, created_at",
+                (user_id,)
+            ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_goal(user_id: int, goal_id: int) -> dict | None:
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
+        row = conn.execute(
+            "SELECT * FROM user_goals WHERE id = %s AND user_id = %s",
+            (goal_id, user_id)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def update_goal(user_id: int, goal_id: int, **fields) -> bool:
+    allowed = {"title", "type", "target_amount", "current_amount",
+               "deadline", "priority", "status", "notes"}
+    updates = {k: v for k, v in fields.items() if k in allowed}
+    if not updates:
+        return False
+    updates["updated_at"] = "NOW()"
+    set_clause = ", ".join(
+        f"{k} = NOW()" if v == "NOW()" else f"{k} = %s" for k, v in updates.items()
+    )
+    values = [v for v in updates.values() if v != "NOW()"]
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
+        conn.execute(
+            f"UPDATE user_goals SET {set_clause} WHERE id = %s AND user_id = %s",
+            (*values, goal_id, user_id)
+        )
+    return True
+
+
+def delete_goal(user_id: int, goal_id: int):
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
+        conn.execute(
+            "DELETE FROM user_goals WHERE id = %s AND user_id = %s",
+            (goal_id, user_id)
+        )
+
+
+# ── Financial Events ──────────────────────────────────────────────────────────────
+
+def create_financial_event(user_id: int, event_type: str, title: str,
+                           amount: float = None, event_date: str = None,
+                           description: str = None) -> int:
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
+        row = conn.execute("""
+            INSERT INTO financial_events (user_id, event_type, title, amount, event_date, description)
+            VALUES (%s, %s, %s, %s, COALESCE(%s::date, CURRENT_DATE), %s)
+            RETURNING id
+        """, (user_id, event_type, title, amount, event_date, description)
+        ).fetchone()
+    return row["id"]
+
+
+def list_financial_events(user_id: int, limit: int = 50) -> list[dict]:
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
+        rows = conn.execute(
+            "SELECT * FROM financial_events WHERE user_id = %s ORDER BY event_date DESC LIMIT %s",
+            (user_id, limit)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_financial_event(user_id: int, event_id: int):
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
+        conn.execute(
+            "DELETE FROM financial_events WHERE id = %s AND user_id = %s",
+            (event_id, user_id)
+        )
+
+
+# ── User Profile (behavioral/preference layer) ────────────────────────────────────
+
+def get_user_financial_profile(user_id: int) -> dict | None:
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
+        row = conn.execute(
+            "SELECT * FROM user_profile WHERE user_id = %s", (user_id,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def upsert_user_financial_profile(user_id: int, **fields) -> None:
+    allowed = {"life_stage", "risk_tolerance", "income_estimate", "savings_rate_pct",
+               "communication_style", "spending_triggers", "preferences"}
+    updates = {k: v for k, v in fields.items() if k in allowed}
+    if not updates:
+        return
+    cols = ", ".join(updates.keys())
+    placeholders = ", ".join(["%s"] * len(updates))
+    set_clause = ", ".join(f"{k} = EXCLUDED.{k}" for k in updates)
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
+        conn.execute(f"""
+            INSERT INTO user_profile (user_id, {cols}, updated_at)
+            VALUES (%s, {placeholders}, NOW())
+            ON CONFLICT (user_id) DO UPDATE SET {set_clause}, updated_at = NOW()
+        """, (user_id, *updates.values()))
+
+
+# ── Financial Snapshots ───────────────────────────────────────────────────────────
+
+def create_financial_snapshot(user_id: int, snapshot_date: str = None,
+                              income_estimate: float = None, total_expenses: float = None,
+                              savings_rate_pct: float = None, total_debt: float = None,
+                              total_assets: float = None, net_worth: float = None) -> int:
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
+        row = conn.execute("""
+            INSERT INTO financial_snapshots
+                (user_id, snapshot_date, income_estimate, total_expenses,
+                 savings_rate_pct, total_debt, total_assets, net_worth)
+            VALUES (%s, COALESCE(%s::date, CURRENT_DATE), %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (user_id, snapshot_date) DO UPDATE SET
+                income_estimate  = EXCLUDED.income_estimate,
+                total_expenses   = EXCLUDED.total_expenses,
+                savings_rate_pct = EXCLUDED.savings_rate_pct,
+                total_debt       = EXCLUDED.total_debt,
+                total_assets     = EXCLUDED.total_assets,
+                net_worth        = EXCLUDED.net_worth
+            RETURNING id
+        """, (user_id, snapshot_date, income_estimate, total_expenses,
+              savings_rate_pct, total_debt, total_assets, net_worth)
+        ).fetchone()
+    return row["id"]
+
+
+def list_financial_snapshots(user_id: int, limit: int = 12) -> list[dict]:
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
+        rows = conn.execute(
+            "SELECT * FROM financial_snapshots WHERE user_id = %s ORDER BY snapshot_date DESC LIMIT %s",
+            (user_id, limit)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ── Conversation Memory ───────────────────────────────────────────────────────────
+# These two functions are the most important in the memory layer.
+
+def store_memory(user_id: int, content: str, memory_type: str = 'context',
+                 importance: int = 3, source: str = 'conversation',
+                 embedding: list[float] | None = None) -> int:
+    """Store a memory. Pass embedding as a list of floats if available."""
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
+        row = conn.execute("""
+            INSERT INTO conversation_memory
+                (user_id, content, memory_type, importance, source, embedding)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (user_id, content, memory_type, importance, source,
+              embedding)  # psycopg2 passes list as array; pgvector accepts it via VECTOR cast
+        ).fetchone()
+    return row["id"]
+
+
+def retrieve_relevant_memories(user_id: int, embedding: list[float],
+                                limit: int = 10,
+                                memory_type: str | None = None) -> list[dict]:
+    """Semantic search over stored memories using cosine similarity.
+
+    Returns memories ordered by relevance (closest embedding first).
+    Also updates last_accessed_at so we can track what's being used.
+    """
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
+        if memory_type:
+            rows = conn.execute("""
+                SELECT id, content, memory_type, importance, source, created_at,
+                       1 - (embedding <=> %s::vector) AS similarity
+                FROM conversation_memory
+                WHERE user_id = %s AND memory_type = %s AND embedding IS NOT NULL
+                ORDER BY embedding <=> %s::vector
+                LIMIT %s
+            """, (embedding, user_id, memory_type, embedding, limit)).fetchall()
+        else:
+            rows = conn.execute("""
+                SELECT id, content, memory_type, importance, source, created_at,
+                       1 - (embedding <=> %s::vector) AS similarity
+                FROM conversation_memory
+                WHERE user_id = %s AND embedding IS NOT NULL
+                ORDER BY embedding <=> %s::vector
+                LIMIT %s
+            """, (embedding, user_id, embedding, limit)).fetchall()
+
+        if rows:
+            ids = [r["id"] for r in rows]
+            conn.execute(
+                f"UPDATE conversation_memory SET last_accessed_at = NOW() WHERE id = ANY(%s)",
+                (ids,)
+            )
+    return [dict(r) for r in rows]
+
+
+def list_memories(user_id: int, memory_type: str | None = None,
+                  limit: int = 50) -> list[dict]:
+    """List memories without semantic search — for browsing/debugging."""
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
+        if memory_type:
+            rows = conn.execute(
+                "SELECT id, content, memory_type, importance, source, created_at "
+                "FROM conversation_memory WHERE user_id = %s AND memory_type = %s "
+                "ORDER BY importance DESC, created_at DESC LIMIT %s",
+                (user_id, memory_type, limit)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, content, memory_type, importance, source, created_at "
+                "FROM conversation_memory WHERE user_id = %s "
+                "ORDER BY importance DESC, created_at DESC LIMIT %s",
+                (user_id, limit)
+            ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_memory(user_id: int, memory_id: int):
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
+        conn.execute(
+            "DELETE FROM conversation_memory WHERE id = %s AND user_id = %s",
+            (memory_id, user_id)
+        )
+
+
+# ── Advice History ────────────────────────────────────────────────────────────────
+
+def store_advice(user_id: int, response_text: str, prompt_summary: str = None,
+                 user_message: str = None, category: str = None,
+                 compliance_flags: list = None, prompt_tokens: int = None,
+                 completion_tokens: int = None, latency_ms: int = None) -> int:
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
+        import json
+        row = conn.execute("""
+            INSERT INTO advice_history
+                (user_id, prompt_summary, user_message, response_text, category,
+                 compliance_flags, prompt_tokens, completion_tokens, latency_ms)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (user_id, prompt_summary, user_message, response_text, category,
+              json.dumps(compliance_flags or []), prompt_tokens, completion_tokens, latency_ms)
+        ).fetchone()
+    return row["id"]
+
+
+def list_advice(user_id: int, limit: int = 20) -> list[dict]:
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
+        rows = conn.execute(
+            "SELECT * FROM advice_history WHERE user_id = %s ORDER BY created_at DESC LIMIT %s",
+            (user_id, limit)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def update_advice_reaction(user_id: int, advice_id: int,
+                           reaction: str, outcome_notes: str = None):
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
+        conn.execute("""
+            UPDATE advice_history
+            SET user_reaction = %s, outcome_notes = COALESCE(%s, outcome_notes)
+            WHERE id = %s AND user_id = %s
+        """, (reaction, outcome_notes, advice_id, user_id))
 
 
 # Prune stale tokens at import time

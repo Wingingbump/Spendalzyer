@@ -3,12 +3,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import logging
 import datetime
+import time
 from dotenv import load_dotenv
 from core.db import upsert_transactions, fetch_transactions, load_category_map, seed_category_map
 import plaid
 from plaid.api import plaid_api
 from plaid.model.transactions_get_request import TransactionsGetRequest
 from plaid.model.transactions_get_request_options import TransactionsGetRequestOptions
+from plaid.model.transactions_refresh_request import TransactionsRefreshRequest
 
 logging.basicConfig(
     level=logging.INFO,
@@ -81,9 +83,14 @@ def fetch_all_transactions(client, access_token: str, start_date, end_date) -> l
 
 def save_transactions(transactions: list, institution: str,
                       existing_ids: set, account_map: dict, user_id: int) -> int:
+    # Only keep transactions for accounts registered in plaid_accounts.
+    # Plaid occasionally returns duplicate account IDs for the same physical
+    # account; skipping unregistered IDs prevents ghost duplicates.
+    registered_account_ids = set(account_map.keys())
     new_transactions = [
         t for t in transactions
         if t["transaction_id"] not in existing_ids
+        and t["account_id"] in registered_account_ids
     ]
 
     if not new_transactions:
@@ -117,11 +124,18 @@ def main(user_id: int, full_sync: bool = False):
 
     end_date = datetime.date.today()
     if full_sync:
-        start_date = datetime.date(2024, 1, 1)
-        log.info("Full sync requested — pulling from 2024-01-01")
+        start_date = end_date - datetime.timedelta(days=730)  # Plaid max is ~24 months
+        log.info(f"Full sync requested — pulling from {start_date} (24-month Plaid limit)")
     else:
         last = get_latest_transaction_date(user_id)
-        start_date = datetime.date.fromisoformat(last) if last else datetime.date(2024, 1, 1)
+        if last:
+            # Roll back 30 days from the latest stored transaction so that any
+            # transactions that were pending during the last sync (and later posted
+            # with a new Plaid transaction_id) are not missed.
+            latest = datetime.date.fromisoformat(last)
+            start_date = latest - datetime.timedelta(days=30)
+        else:
+            start_date = datetime.date(2024, 1, 1)
     log.info(f"Pulling from {start_date} to {end_date}")
 
     existing_ids = {t["id"] for t in fetch_transactions(user_id)}
@@ -163,6 +177,12 @@ def main(user_id: int, full_sync: bool = False):
     for account in accounts:
         log.info(f"Pulling {account['name']}...")
         try:
+            try:
+                client.transactions_refresh(TransactionsRefreshRequest(access_token=account["access_token"]))
+                log.info(f"{account['name']}: refresh triggered, waiting 10s for Plaid to fetch from institution...")
+                time.sleep(10)
+            except plaid.ApiException as e:
+                log.warning(f"{account['name']}: refresh failed (non-fatal): {e.body}")
             transactions = fetch_all_transactions(client, account["access_token"], start_date, end_date)
             saved = save_transactions(transactions, account["name"], existing_ids, account_map, user_id)
             total_new += saved

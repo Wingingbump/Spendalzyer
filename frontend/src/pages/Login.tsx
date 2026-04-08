@@ -35,6 +35,10 @@ export default function Login() {
   const [successMsg, setSuccessMsg] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [registered, setRegistered] = useState(false)
+  const [showResend, setShowResend] = useState(false)
+  const [resendEmail, setResendEmail] = useState('')
+  const [resendMsg, setResendMsg] = useState('')
+  const [resendLoading, setResendLoading] = useState(false)
   const navigate = useNavigate()
   const { setUser } = useAuth()
 
@@ -50,10 +54,27 @@ export default function Login() {
       setUser(user)
       navigate('/overview', { replace: true })
     } catch (err: unknown) {
-      const e = err as { response?: { data?: { detail?: string } } }
-      setServerError(e.response?.data?.detail || 'Invalid username or password')
+      const e = err as { response?: { status?: number; data?: { detail?: string } } }
+      const detail = e.response?.data?.detail || 'Invalid username or password'
+      setServerError(detail)
+      if (e.response?.status === 403 && detail.toLowerCase().includes('verify')) {
+        setShowResend(true)
+      }
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+  const onResend = async () => {
+    if (!resendEmail) return
+    setResendLoading(true)
+    try {
+      await authApi.resendVerification(resendEmail)
+      setResendMsg('Confirmation link sent — check your email.')
+    } catch {
+      setResendMsg('If that email exists and is unverified, a new link has been sent.')
+    } finally {
+      setResendLoading(false)
     }
   }
 
@@ -96,6 +117,9 @@ export default function Login() {
     setTab(t)
     setServerError('')
     setRegistered(false)
+    setShowResend(false)
+    setResendEmail('')
+    setResendMsg('')
     loginForm.reset()
     registerForm.reset()
   }
@@ -156,6 +180,35 @@ export default function Login() {
                 {loginForm.formState.errors.password && <p className="mt-1" style={{ fontSize: 11, color: 'var(--color-negative)' }}>{loginForm.formState.errors.password.message}</p>}
               </div>
               {serverError && <ErrorBox msg={serverError} />}
+              {showResend && !resendMsg && (
+                <div className="rounded-lg p-3 space-y-2" style={{ background: 'var(--color-surface-raise)', border: '1px solid var(--color-border)' }}>
+                  <p style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>Enter your email to resend the confirmation link.</p>
+                  <div className="flex gap-2">
+                    <input
+                      type="email"
+                      placeholder="you@example.com"
+                      value={resendEmail}
+                      onChange={(e) => setResendEmail(e.target.value)}
+                      className="flex-1"
+                      style={{ fontSize: 13 }}
+                    />
+                    <button
+                      type="button"
+                      onClick={onResend}
+                      disabled={resendLoading}
+                      className="px-3 py-1.5 rounded-lg font-medium disabled:opacity-60"
+                      style={{ background: 'var(--color-accent)', color: '#000', fontSize: 12, whiteSpace: 'nowrap' }}
+                    >
+                      {resendLoading ? 'Sending…' : 'Resend'}
+                    </button>
+                  </div>
+                </div>
+              )}
+              {resendMsg && (
+                <div className="rounded-lg px-3 py-2" style={{ background: 'rgba(90,191,138,0.1)', border: '1px solid rgba(90,191,138,0.3)', color: 'var(--color-positive)', fontSize: 12 }}>
+                  {resendMsg}
+                </div>
+              )}
               <div className="pt-2">
                 <SubmitButton loading={isSubmitting} label="Sign in" loadingLabel="Signing in…" />
               </div>
@@ -212,6 +265,16 @@ export default function Login() {
               <p style={{ fontSize: 13, color: 'var(--color-text-muted)', lineHeight: 1.6 }}>
                 We sent a confirmation link to your email address. Click it to activate your account and sign in.
               </p>
+              {!resendMsg ? (
+                <button
+                  onClick={() => { setShowResend(true); setTab('login') }}
+                  style={{ fontSize: 12, color: 'var(--color-text-muted)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
+                >
+                  Didn't get it? Resend
+                </button>
+              ) : (
+                <p style={{ fontSize: 12, color: 'var(--color-positive)' }}>{resendMsg}</p>
+              )}
               <button onClick={() => switchTab('login')} style={{ fontSize: 12, color: 'var(--color-text-muted)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
                 Back to sign in
               </button>
