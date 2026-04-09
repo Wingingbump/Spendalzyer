@@ -1,12 +1,15 @@
 
+import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from 'recharts'
-import { ShoppingBag, Store, Calendar } from 'lucide-react'
-import { insightsApi } from '../lib/api'
+import { ShoppingBag, Store, Calendar, CreditCard, X } from 'lucide-react'
+import { accountsApi, insightsApi } from '../lib/api'
 import { useFilters } from '../context/FilterContext'
 import { useTheme } from '../context/ThemeContext'
+import { useAuth } from '../context/AuthContext'
 import { formatCurrency, formatMonth, CHART_COLORS_DARK, CHART_COLORS_LIGHT } from '../lib/utils'
 import Card from '../components/Card'
 import MetricCard from '../components/MetricCard'
@@ -44,11 +47,84 @@ function DowTooltip({ active, payload, label }: { active?: boolean; payload?: Ar
 }
 
 
+function ConnectBanner({ onDismiss }: { onDismiss: () => void }) {
+  const navigate = useNavigate()
+  return (
+    <div
+      className="fixed inset-0 flex items-center justify-center"
+      style={{ background: 'rgba(0,0,0,0.55)', zIndex: 50 }}
+    >
+      <div
+        className="rounded-2xl p-8 w-full relative"
+        style={{ maxWidth: 420, background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
+      >
+        <button
+          onClick={onDismiss}
+          style={{ position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: 4 }}
+        >
+          <X size={16} />
+        </button>
+
+        <div
+          className="w-12 h-12 rounded-xl flex items-center justify-center mb-5"
+          style={{ background: 'rgba(200,255,0,0.12)' }}
+        >
+          <CreditCard size={22} style={{ color: 'var(--color-accent)' }} />
+        </div>
+
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--color-text-primary)', marginBottom: 8 }}>
+          Connect your first account
+        </h2>
+        <p style={{ fontSize: 13, color: 'var(--color-text-muted)', lineHeight: 1.65, marginBottom: 24 }}>
+          spend. works by pulling your real transactions from your bank. Connect a bank account to start seeing your spending insights and get personalized advice.
+        </p>
+
+        <div className="flex gap-3">
+          <button
+            onClick={() => navigate('/settings')}
+            className="flex-1 py-2.5 rounded-lg font-semibold"
+            style={{ background: 'var(--color-accent)', color: '#000', fontSize: 14 }}
+          >
+            Connect account
+          </button>
+          <button
+            onClick={onDismiss}
+            className="px-4 py-2.5 rounded-lg font-medium"
+            style={{ background: 'var(--color-surface-raise)', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)', fontSize: 14 }}
+          >
+            Later
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Overview() {
   const { range, institution, account } = useFilters()
   const { theme } = useTheme()
+  const { user } = useAuth()
   const chartColors = theme === 'dark' ? CHART_COLORS_DARK : CHART_COLORS_LIGHT
   const params = { range, institution, account }
+
+  const { data: accounts = [], isLoading: loadingAccounts } = useQuery({
+    queryKey: ['accounts'],
+    queryFn: () => accountsApi.list(),
+  })
+
+  const bannerKey = `onboarding_dismissed_${user?.id}`
+  const [showBanner, setShowBanner] = useState(false)
+
+  useEffect(() => {
+    if (!loadingAccounts && accounts.length === 0 && !localStorage.getItem(bannerKey)) {
+      setShowBanner(true)
+    }
+  }, [loadingAccounts, accounts.length, bannerKey])
+
+  const dismissBanner = () => {
+    localStorage.setItem(bannerKey, '1')
+    setShowBanner(false)
+  }
 
   const { data: summary, isLoading: loadingSummary } = useQuery({
     queryKey: ['summary', range, institution, account],
@@ -76,6 +152,7 @@ export default function Overview() {
 
   return (
     <div className="space-y-5 fade-in">
+      {showBanner && <ConnectBanner onDismiss={dismissBanner} />}
       <div>
         <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--color-text-primary)' }}>Overview</h1>
         <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginTop: 2 }}>
