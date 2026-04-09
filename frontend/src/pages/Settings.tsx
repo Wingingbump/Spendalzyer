@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Trash2, Plus, Sun, Moon, CreditCard, Shield, Palette, Tag, Pencil, AlertTriangle, UserCircle } from 'lucide-react'
+import { Trash2, Plus, Sun, Moon, CreditCard, Shield, Palette, Tag, Pencil, AlertTriangle, UserCircle, FileText, ChevronDown, ChevronUp } from 'lucide-react'
 import { accountsApi, plaidApi, settingsApi, categoriesApi } from '../lib/api'
 import { useTheme } from '../context/ThemeContext'
 import { useAuth } from '../context/AuthContext'
@@ -46,6 +46,146 @@ const mappingSchema = z.object({
 })
 
 type MappingFormData = z.infer<typeof mappingSchema>
+
+const POLICIES = [
+  {
+    title: 'Privacy Policy',
+    content: `Last updated: April 2026
+
+spend. ("we", "us") is a personal finance application that connects to your bank accounts via Plaid to provide transaction insights and AI-powered financial guidance.
+
+Data we collect
+• Account credentials (username, hashed password, email, phone)
+• Financial data accessed via Plaid: account balances, transaction history, institution names
+• Usage data: session tokens, last sync timestamps
+
+How we use your data
+Your data is used solely to provide the spend. service — displaying your transactions, generating insights, and powering the AI advisor. We do not sell, share, or monetize your data with third parties.
+
+Third-party services
+• Plaid — used to securely access your financial institution data. Plaid's privacy policy applies to data shared with them.
+• Supabase — database and file storage provider.
+• Resend — transactional email delivery.
+• Anthropic — AI model provider for the advisor feature. Only relevant context is sent; raw transaction data is not transmitted.
+
+Data retention
+Your data is retained for as long as your account is active. Upon account deletion, all data is permanently removed after a 30-day grace period.
+
+Contact
+For privacy questions, contact us at privacy@wingingbump.com.`,
+  },
+  {
+    title: 'Information Security Policy',
+    content: `Last updated: April 2026
+
+spend. is committed to protecting the security of user data. This policy summarizes our security practices.
+
+Encryption
+• All data in transit is encrypted via TLS/HTTPS.
+• Sensitive credentials (Plaid access tokens) are encrypted at rest using AES-256 (Fernet).
+• Passwords are hashed using bcrypt with a cost factor of 12.
+
+Authentication & access control
+• Users authenticate via username/password with JWT-based session tokens.
+• Access tokens expire after a short window; refresh tokens are rotated on each use and stored as single-use.
+• All API endpoints require authentication. Resources are scoped to the authenticated user — no user can access another user's data.
+
+Vulnerability management
+• Dependencies are monitored continuously via GitHub Dependabot.
+• Identified vulnerabilities are reviewed and patched within 30 days (critical: 7 days).
+
+Incident response
+Security incidents are investigated promptly. Affected users will be notified within 72 hours of a confirmed breach involving their data.
+
+Infrastructure
+• Backend hosted on Render (SOC 2 Type II certified).
+• Database hosted on Supabase (SOC 2 Type II certified).
+• Frontend hosted on Vercel (SOC 2 Type II certified).`,
+  },
+  {
+    title: 'Data Deletion & Retention Policy',
+    content: `Last updated: April 2026
+
+Account deletion
+You may request deletion of your account at any time from Settings → Danger Zone. Deletion is scheduled with a 30-day grace period, during which you may cancel the request and restore your account.
+
+What gets deleted
+Upon permanent deletion, the following data is removed:
+• Your profile (name, email, phone, username)
+• All connected bank accounts and Plaid access tokens
+• All transaction history
+• All financial insights and category mappings
+• Session tokens and refresh tokens
+
+Data retention during active use
+• Transaction data is retained as long as your account is active to power insights and the AI advisor.
+• Plaid access tokens are retained to enable background syncing and are encrypted at rest.
+
+Requests
+To request immediate data deletion or a copy of your data, contact privacy@wingingbump.com.`,
+  },
+  {
+    title: 'Access Control Policy',
+    content: `Last updated: April 2026
+
+spend. enforces access control at every layer of the application.
+
+Authentication
+All users must authenticate with a verified email address and password before accessing any data. Session tokens are short-lived and rotated regularly.
+
+Authorization
+Every API request is authenticated and authorized server-side. Data access is strictly scoped to the authenticated user — queries include user_id filters at the database level. No user can read, modify, or delete another user's data.
+
+Role-based access
+Currently spend. has one user role (standard user). Administrative access to infrastructure (Render, Supabase, Vercel) is restricted to the service owner and protected by multi-factor authentication.
+
+Access reviews
+Administrative access to all systems is reviewed periodically. Unused credentials are revoked promptly.`,
+  },
+]
+
+function PolicyItem({ title, content }: { title: string; content: string }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div style={{ borderBottom: '1px solid var(--color-border)' }}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between py-3"
+        style={{ background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}
+      >
+        <span style={{ fontSize: 13, color: 'var(--color-text-secondary)', fontWeight: 500 }}>{title}</span>
+        {open
+          ? <ChevronUp size={14} style={{ color: 'var(--color-text-muted)', flexShrink: 0 }} />
+          : <ChevronDown size={14} style={{ color: 'var(--color-text-muted)', flexShrink: 0 }} />
+        }
+      </button>
+      {open && (
+        <div className="pb-4" style={{ fontSize: 12, color: 'var(--color-text-muted)', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
+          {content}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function LegalSection() {
+  return (
+    <Card>
+      <SectionHeader icon={FileText} title="Legal" />
+      <p className="mb-4" style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
+        Policies governing use of spend. and how we handle your data.
+      </p>
+      <div>
+        {POLICIES.map((p) => (
+          <PolicyItem key={p.title} title={p.title} content={p.content} />
+        ))}
+      </div>
+      <p className="mt-4" style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>
+        spend. · wingingbump.com · privacy@wingingbump.com
+      </p>
+    </Card>
+  )
+}
 
 function SectionHeader({ icon: Icon, title }: { icon: React.ElementType; title: string }) {
   return (
@@ -701,6 +841,9 @@ export default function Settings() {
           </>
         )}
       </Card>
+
+      {/* ── Section 6: Legal ────────────────────────────────────────────────── */}
+      <LegalSection />
 
       {/* ── Delete Account Modal ─────────────────────────────────────────────── */}
       {showDeleteModal && (
