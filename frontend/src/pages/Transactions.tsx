@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Search, Check, ChevronUp, ChevronDown, Plus, Trash2, X } from 'lucide-react'
+import { Search, Check, ChevronUp, ChevronDown, Plus, Trash2, X, Tag } from 'lucide-react'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
 import { transactionsApi, categoriesApi, workspaceApi, merchantsApi } from '../lib/api'
 import type { Transaction } from '../lib/api'
@@ -56,6 +56,8 @@ export default function Transactions() {
   const [showAdd, setShowAdd] = useState(false)
   const [addForm, setAddForm] = useState<AddForm>({ name: '', date: today, amount: '', category: 'Other', notes: '' })
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+  const [merchantSuggestion, setMerchantSuggestion] = useState<{ merchant: string; category: string } | null>(null)
+  const [applyDialog, setApplyDialog] = useState<{ merchant: string; category: string } | null>(null)
   const qc = useQueryClient()
   const chartColors = theme === 'dark' ? CHART_COLORS_DARK : CHART_COLORS_LIGHT
 
@@ -68,6 +70,11 @@ export default function Transactions() {
     queryKey: ['category-mappings'],
     queryFn: () => categoriesApi.mappings(),
     staleTime: 300_000,
+  })
+
+  const { data: categoryOverrides = {} } = useQuery({
+    queryKey: ['merchant-category-overrides'],
+    queryFn: () => merchantsApi.categoryOverrides(),
   })
 
   // Collect all known categories
@@ -134,6 +141,25 @@ export default function Transactions() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['transactions'] })
       qc.invalidateQueries({ queryKey: ['merchants'] })
+    },
+  })
+
+  const saveMerchantCategoryMutation = useMutation({
+    mutationFn: ({ merchant, category }: { merchant: string; category: string }) =>
+      merchantsApi.saveCategoryOverride(merchant, category),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ['merchant-category-overrides'] })
+      setMerchantSuggestion(null)
+      setApplyDialog(vars)
+    },
+  })
+
+  const applyHistoricalMutation = useMutation({
+    mutationFn: ({ merchant, category }: { merchant: string; category: string }) =>
+      merchantsApi.applyHistoricalCategory(merchant, category),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['transactions'] })
+      setApplyDialog(null)
     },
   })
 
@@ -430,22 +456,33 @@ export default function Transactions() {
                             style={{ fontSize: 12, width: 130 }}
                           />
                         ) : (
-                          <span
-                            onDoubleClick={() => { setMerchantDraft(tx.merchant_normalized || ''); setEditingMerchant(tx.id) }}
-                            title="Double-click to rename"
-                            style={{ fontSize: 12, color: 'var(--color-text-secondary)', maxWidth: 140, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'text' }}
-                          >
-                            {tx.merchant_normalized || '—'}
-                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, maxWidth: 150 }}>
+                            <span
+                              onDoubleClick={() => { setMerchantDraft(tx.merchant_normalized || ''); setEditingMerchant(tx.id) }}
+                              title={categoryOverrides[tx.merchant_normalized] ? `Rule: always ${categoryOverrides[tx.merchant_normalized]} · double-click to rename` : 'Double-click to rename'}
+                              style={{ fontSize: 12, color: 'var(--color-text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'text', flex: 1 }}
+                            >
+                              {tx.merchant_normalized || '—'}
+                            </span>
+                            {categoryOverrides[tx.merchant_normalized] && (
+                              <div
+                                title={`Category rule: ${categoryOverrides[tx.merchant_normalized]}`}
+                                style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--color-accent)', flexShrink: 0 }}
+                              />
+                            )}
+                          </div>
                         )}
                       </td>
                       <td className="editable-cell">
                         <select
                           value={currentCategory}
                           onChange={(e) => {
-                            setEdit(tx.id, 'category', e.target.value)
-                            // Auto-save on change for select
-                            patchMutation.mutate({ id: tx.id, data: { category: e.target.value } })
+                            const newCat = e.target.value
+                            setEdit(tx.id, 'category', newCat)
+                            patchMutation.mutate({ id: tx.id, data: { category: newCat } })
+                            if (tx.merchant_normalized) {
+                              setMerchantSuggestion({ merchant: tx.merchant_normalized, category: newCat })
+                            }
                           }}
                           style={{ fontSize: 12, minWidth: 140, border: 'none', background: 'var(--color-surface)', color: 'var(--color-text-primary)', padding: '2px 24px 2px 4px' }}
                         >
@@ -641,6 +678,84 @@ export default function Transactions() {
           </div>
         </div>
       </div>
+
+      {/* Merchant category suggestion toast */}
+      {merchantSuggestion && (
+        <div
+          style={{
+            position: 'fixed', bottom: 68, right: 24, zIndex: 40,
+            background: 'var(--color-surface)',
+            border: '1px solid var(--color-border)',
+            borderRadius: 10, padding: '12px 16px',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+            maxWidth: 320,
+          }}
+        >
+          <div className="flex items-start gap-2 mb-3">
+            <Tag size={14} style={{ color: 'var(--color-accent)', flexShrink: 0, marginTop: 1 }} />
+            <p style={{ fontSize: 13, color: 'var(--color-text-primary)', lineHeight: 1.4 }}>
+              Set <strong>{merchantSuggestion.merchant}</strong> to{' '}
+              <strong>{merchantSuggestion.category}</strong> for all future transactions?
+            </p>
+          </div>
+          <div className="flex gap-2 justify-end">
+            <button
+              onClick={() => setMerchantSuggestion(null)}
+              style={{ fontSize: 12, padding: '4px 10px', borderRadius: 5, background: 'none', border: '1px solid var(--color-border)', color: 'var(--color-text-muted)', cursor: 'pointer' }}
+            >
+              Dismiss
+            </button>
+            <button
+              disabled={saveMerchantCategoryMutation.isPending}
+              onClick={() => saveMerchantCategoryMutation.mutate(merchantSuggestion)}
+              style={{ fontSize: 12, padding: '4px 10px', borderRadius: 5, background: 'var(--color-accent)', border: 'none', color: '#000', fontWeight: 600, cursor: 'pointer', opacity: saveMerchantCategoryMutation.isPending ? 0.6 : 1 }}
+            >
+              Set rule
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Apply historical dialog */}
+      {applyDialog && (
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setApplyDialog(null)}
+        >
+          <div
+            className="rounded-xl p-6"
+            style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', maxWidth: 420, width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.4)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <Tag size={16} style={{ color: 'var(--color-accent)' }} />
+              <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)' }}>Apply to past transactions?</p>
+            </div>
+            <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginBottom: 4 }}>
+              You set <strong>{applyDialog.merchant}</strong> to <strong>{applyDialog.category}</strong>.
+            </p>
+            <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 20 }}>
+              Apply this category to all recorded past transactions from this merchant?
+              Individual transaction overrides will not be affected.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setApplyDialog(null)}
+                style={{ fontSize: 13, padding: '6px 14px', borderRadius: 6, background: 'var(--color-surface-raise)', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)', cursor: 'pointer' }}
+              >
+                Future only
+              </button>
+              <button
+                disabled={applyHistoricalMutation.isPending}
+                onClick={() => applyHistoricalMutation.mutate(applyDialog)}
+                style={{ fontSize: 13, padding: '6px 14px', borderRadius: 6, background: 'var(--color-accent)', color: '#000', fontWeight: 600, cursor: 'pointer', border: 'none', opacity: applyHistoricalMutation.isPending ? 0.6 : 1 }}
+              >
+                {applyHistoricalMutation.isPending ? 'Applying…' : 'Apply to all past'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Bottom bar */}
       <div

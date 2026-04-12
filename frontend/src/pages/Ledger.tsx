@@ -1,8 +1,7 @@
 import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Search, Check, Plus, Trash2, X } from 'lucide-react'
+import { Search, Check, Plus, Trash2, X, Tag, Download } from 'lucide-react'
 import { ledgerApi, transactionsApi, workspaceApi, merchantsApi } from '../lib/api'
-import { Download } from 'lucide-react'
 import { useFilters } from '../context/FilterContext'
 import { useWorkspace } from '../context/WorkspaceContext'
 import { usePanel } from '../context/PanelContext'
@@ -54,6 +53,8 @@ export default function Ledger() {
   const [showAdd, setShowAdd] = useState(false)
   const [addForm, setAddForm] = useState<AddForm>({ name: '', date: today, amount: '', category: 'Other', notes: '' })
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+  const [merchantSuggestion, setMerchantSuggestion] = useState<{ merchant: string; category: string } | null>(null)
+  const [applyDialog, setApplyDialog] = useState<{ merchant: string; category: string } | null>(null)
   const qc = useQueryClient()
 
   const { data: ledgerData, isLoading } = useQuery({
@@ -110,6 +111,30 @@ export default function Ledger() {
       qc.invalidateQueries({ queryKey: ['ledger'] })
       qc.invalidateQueries({ queryKey: ['merchants'] })
     },
+  })
+
+  const saveMerchantCategoryMutation = useMutation({
+    mutationFn: ({ merchant, category }: { merchant: string; category: string }) =>
+      merchantsApi.saveCategoryOverride(merchant, category),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ['merchant-category-overrides'] })
+      setMerchantSuggestion(null)
+      setApplyDialog(vars)
+    },
+  })
+
+  const applyHistoricalMutation = useMutation({
+    mutationFn: ({ merchant, category }: { merchant: string; category: string }) =>
+      merchantsApi.applyHistoricalCategory(merchant, category),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ledger'] })
+      setApplyDialog(null)
+    },
+  })
+
+  const { data: categoryOverrides = {} } = useQuery({
+    queryKey: ['merchant-category-overrides'],
+    queryFn: () => merchantsApi.categoryOverrides(),
   })
 
   const createMutation = useMutation({
@@ -439,21 +464,33 @@ export default function Ledger() {
                             style={{ fontSize: 12, width: 120 }}
                           />
                         ) : (
-                          <span
-                            onDoubleClick={() => { setMerchantDraft(row.merchant_normalized || ''); setEditingMerchant(row.id) }}
-                            title="Double-click to rename"
-                            style={{ fontSize: 12, color: 'var(--color-text-secondary)', maxWidth: 130, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'text' }}
-                          >
-                            {row.merchant_normalized || '—'}
-                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, maxWidth: 145 }}>
+                            <span
+                              onDoubleClick={() => { setMerchantDraft(row.merchant_normalized || ''); setEditingMerchant(row.id) }}
+                              title={categoryOverrides[row.merchant_normalized] ? `Rule: always ${categoryOverrides[row.merchant_normalized]} · double-click to rename` : 'Double-click to rename'}
+                              style={{ fontSize: 12, color: 'var(--color-text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'text', flex: 1 }}
+                            >
+                              {row.merchant_normalized || '—'}
+                            </span>
+                            {categoryOverrides[row.merchant_normalized] && (
+                              <div
+                                title={`Category rule: ${categoryOverrides[row.merchant_normalized]}`}
+                                style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--color-accent)', flexShrink: 0 }}
+                              />
+                            )}
+                          </div>
                         )}
                       </td>
                       <td className="editable-cell">
                         <select
                           value={currentCategory}
                           onChange={(e) => {
-                            setEdit(row.id, 'category', e.target.value)
-                            patchMutation.mutate({ id: row.id, data: { category: e.target.value } })
+                            const newCat = e.target.value
+                            setEdit(row.id, 'category', newCat)
+                            patchMutation.mutate({ id: row.id, data: { category: newCat } })
+                            if (row.merchant_normalized) {
+                              setMerchantSuggestion({ merchant: row.merchant_normalized, category: newCat })
+                            }
                           }}
                           style={{ fontSize: 12, minWidth: 130, border: 'none', background: 'var(--color-surface)', color: 'var(--color-text-primary)', padding: '2px 24px 2px 4px' }}
                         >
@@ -557,6 +594,84 @@ export default function Ledger() {
         </div>
 
       </div>
+
+      {/* Merchant category suggestion toast */}
+      {merchantSuggestion && (
+        <div
+          style={{
+            position: 'fixed', bottom: 68, right: 24, zIndex: 40,
+            background: 'var(--color-surface)',
+            border: '1px solid var(--color-border)',
+            borderRadius: 10, padding: '12px 16px',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+            maxWidth: 320,
+          }}
+        >
+          <div className="flex items-start gap-2 mb-3">
+            <Tag size={14} style={{ color: 'var(--color-accent)', flexShrink: 0, marginTop: 1 }} />
+            <p style={{ fontSize: 13, color: 'var(--color-text-primary)', lineHeight: 1.4 }}>
+              Set <strong>{merchantSuggestion.merchant}</strong> to{' '}
+              <strong>{merchantSuggestion.category}</strong> for all future transactions?
+            </p>
+          </div>
+          <div className="flex gap-2 justify-end">
+            <button
+              onClick={() => setMerchantSuggestion(null)}
+              style={{ fontSize: 12, padding: '4px 10px', borderRadius: 5, background: 'none', border: '1px solid var(--color-border)', color: 'var(--color-text-muted)', cursor: 'pointer' }}
+            >
+              Dismiss
+            </button>
+            <button
+              disabled={saveMerchantCategoryMutation.isPending}
+              onClick={() => saveMerchantCategoryMutation.mutate(merchantSuggestion)}
+              style={{ fontSize: 12, padding: '4px 10px', borderRadius: 5, background: 'var(--color-accent)', border: 'none', color: '#000', fontWeight: 600, cursor: 'pointer', opacity: saveMerchantCategoryMutation.isPending ? 0.6 : 1 }}
+            >
+              Set rule
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Apply historical dialog */}
+      {applyDialog && (
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setApplyDialog(null)}
+        >
+          <div
+            className="rounded-xl p-6"
+            style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', maxWidth: 420, width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.4)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <Tag size={16} style={{ color: 'var(--color-accent)' }} />
+              <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)' }}>Apply to past transactions?</p>
+            </div>
+            <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginBottom: 4 }}>
+              You set <strong>{applyDialog.merchant}</strong> to <strong>{applyDialog.category}</strong>.
+            </p>
+            <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 20 }}>
+              Apply this category to all recorded past transactions from this merchant?
+              Individual transaction overrides will not be affected.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setApplyDialog(null)}
+                style={{ fontSize: 13, padding: '6px 14px', borderRadius: 6, background: 'var(--color-surface-raise)', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)', cursor: 'pointer' }}
+              >
+                Future only
+              </button>
+              <button
+                disabled={applyHistoricalMutation.isPending}
+                onClick={() => applyHistoricalMutation.mutate(applyDialog)}
+                style={{ fontSize: 13, padding: '6px 14px', borderRadius: 6, background: 'var(--color-accent)', color: '#000', fontWeight: 600, cursor: 'pointer', border: 'none', opacity: applyHistoricalMutation.isPending ? 0.6 : 1 }}
+              >
+                {applyHistoricalMutation.isPending ? 'Applying…' : 'Apply to all past'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {summary && (
         <div

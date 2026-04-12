@@ -4,7 +4,7 @@ from dateutil.relativedelta import relativedelta
 import numpy as np
 from core.categorize import apply_categories
 from core.dedup import apply_dedup, get_clean_spending
-from core.db import fetch_transactions, get_merchant_overrides
+from core.db import fetch_transactions, get_merchant_overrides, get_merchant_category_overrides
 
 
 # ── Data loading ───────────────────────────────────────────────────────────────
@@ -43,6 +43,13 @@ def load_data(user_id: int) -> pd.DataFrame:
     df["override_category"] = df["category"].where(df["has_user_override"])
 
     df = apply_categories(df)
+
+    # Apply merchant-level category overrides (wins over Plaid, but not per-tx overrides)
+    merchant_cat_overrides = get_merchant_category_overrides(user_id)
+    if merchant_cat_overrides:
+        for merchant, cat in merchant_cat_overrides.items():
+            mco_mask = (df["merchant_normalized"] == merchant) & ~df["has_user_override"]
+            df.loc[mco_mask, "category"] = cat
 
     # Restore user override categories — user edits always win
     mask = df["has_user_override"]

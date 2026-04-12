@@ -279,6 +279,18 @@ export const merchantsApi = {
 
   deleteOverride: (rawName: string) =>
     api.delete(`/merchants/overrides/${encodeURIComponent(rawName)}`).then((r) => r.data),
+
+  categoryOverrides: () =>
+    api.get<Record<string, string>>('/merchants/category-overrides').then((r) => r.data),
+
+  saveCategoryOverride: (merchantName: string, category: string) =>
+    api.put(`/merchants/category-overrides/${encodeURIComponent(merchantName)}`, { category }).then((r) => r.data),
+
+  deleteCategoryOverride: (merchantName: string) =>
+    api.delete(`/merchants/category-overrides/${encodeURIComponent(merchantName)}`).then((r) => r.data),
+
+  applyHistoricalCategory: (merchantName: string, category: string) =>
+    api.post<{ count: number }>(`/merchants/category-overrides/${encodeURIComponent(merchantName)}/apply-historical`, { category }).then((r) => r.data),
 }
 
 // ─── Categories ──────────────────────────────────────────────────────────────

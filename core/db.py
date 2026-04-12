@@ -228,6 +228,17 @@ def _run_migrations():
             )
         """)
 
+        # Merchant category overrides — per-user merchant→category rules
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS merchant_category_overrides (
+                user_id             INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                merchant_normalized TEXT    NOT NULL,
+                category            TEXT    NOT NULL,
+                updated_at          TIMESTAMPTZ DEFAULT NOW(),
+                PRIMARY KEY (user_id, merchant_normalized)
+            )
+        """)
+
         # Budgets
         conn.execute("""
             CREATE TABLE IF NOT EXISTS budgets (
@@ -1204,6 +1215,55 @@ def delete_merchant_override(user_id: int, raw_name: str):
             "DELETE FROM merchant_overrides WHERE user_id = %s AND raw_name = %s",
             (user_id, raw_name)
         )
+
+
+# ── Merchant category overrides ──────────────────────────────────────────────────
+
+def get_merchant_category_overrides(user_id: int) -> dict:
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
+        rows = conn.execute(
+            "SELECT merchant_normalized, category FROM merchant_category_overrides WHERE user_id = %s",
+            (user_id,)
+        ).fetchall()
+    return {r["merchant_normalized"]: r["category"] for r in rows}
+
+
+def upsert_merchant_category_override(user_id: int, merchant_normalized: str, category: str):
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
+        conn.execute("""
+            INSERT INTO merchant_category_overrides (user_id, merchant_normalized, category, updated_at)
+            VALUES (%s, %s, %s, NOW())
+            ON CONFLICT (user_id, merchant_normalized) DO UPDATE SET
+                category   = EXCLUDED.category,
+                updated_at = NOW()
+        """, (user_id, merchant_normalized, category))
+
+
+def delete_merchant_category_override(user_id: int, merchant_normalized: str):
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
+        conn.execute(
+            "DELETE FROM merchant_category_overrides WHERE user_id = %s AND merchant_normalized = %s",
+            (user_id, merchant_normalized)
+        )
+
+
+def bulk_apply_category_override(transaction_ids: list, category: str) -> int:
+    """Insert per-transaction overrides for a list of IDs, setting their category."""
+    if not transaction_ids:
+        return 0
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = 'bypass'")
+        conn.executemany("""
+            INSERT INTO overrides (transaction_id, category, updated_at)
+            VALUES (%s, %s, NOW())
+            ON CONFLICT (transaction_id) DO UPDATE SET
+                category   = EXCLUDED.category,
+                updated_at = NOW()
+        """, [(tid, category) for tid in transaction_ids])
+    return len(transaction_ids)
 
 
 # ── Account deletion ─────────────────────────────────────────────────────────────

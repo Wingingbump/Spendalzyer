@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts'
-import { Check, X } from 'lucide-react'
+import { Check, X, Tag } from 'lucide-react'
 import { merchantsApi } from '../lib/api'
 import { useFilters } from '../context/FilterContext'
 import { useTheme } from '../context/ThemeContext'
@@ -11,6 +11,19 @@ import { formatCurrency, formatDate, CHART_COLORS_DARK, CHART_COLORS_LIGHT } fro
 import Card from '../components/Card'
 import Spinner from '../components/Spinner'
 import SkeletonRow from '../components/SkeletonRow'
+
+const CATEGORIES = [
+  'Food & Drink',
+  'Transport',
+  'Shopping',
+  'Subscriptions',
+  'Health',
+  'Utilities',
+  'Travel',
+  'Payments',
+  'Income / Interest',
+  'Other',
+]
 
 function MerchantTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: { merchant_normalized: string; total: number; count: number } }> }) {
   if (!active || !payload?.length) return null
@@ -79,12 +92,18 @@ function MerchantNameEditor({
   )
 }
 
+interface ApplyDialog {
+  merchant: string
+  category: string
+}
+
 export default function Merchants() {
   const qc = useQueryClient()
   const { range, institution, account } = useFilters()
   const { theme } = useTheme()
   const chartColors = theme === 'dark' ? CHART_COLORS_DARK : CHART_COLORS_LIGHT
   const [selectedMerchant, setSelectedMerchant] = useState<string>('')
+  const [applyDialog, setApplyDialog] = useState<ApplyDialog | null>(null)
   const params = { range, institution, account }
 
   const { data: merchants = [], isLoading } = useQuery({
@@ -92,11 +111,44 @@ export default function Merchants() {
     queryFn: () => merchantsApi.list(params),
   })
 
+  const { data: categoryOverrides = {} } = useQuery({
+    queryKey: ['merchant-category-overrides'],
+    queryFn: () => merchantsApi.categoryOverrides(),
+  })
+
   const saveMutation = useMutation({
     mutationFn: ({ rawName, displayName }: { rawName: string; displayName: string }) =>
       merchantsApi.saveOverride(rawName, displayName),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['merchants'] })
+    },
+  })
+
+  const saveCategoryMutation = useMutation({
+    mutationFn: ({ merchant, category }: { merchant: string; category: string }) =>
+      merchantsApi.saveCategoryOverride(merchant, category),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ['merchant-category-overrides'] })
+      qc.invalidateQueries({ queryKey: ['merchants'] })
+      setApplyDialog(vars)
+    },
+  })
+
+  const deleteCategoryMutation = useMutation({
+    mutationFn: (merchant: string) => merchantsApi.deleteCategoryOverride(merchant),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['merchant-category-overrides'] })
+      qc.invalidateQueries({ queryKey: ['merchants'] })
+    },
+  })
+
+  const applyHistoricalMutation = useMutation({
+    mutationFn: ({ merchant, category }: { merchant: string; category: string }) =>
+      merchantsApi.applyHistoricalCategory(merchant, category),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['merchant-detail'] })
+      qc.invalidateQueries({ queryKey: ['merchants'] })
+      setApplyDialog(null)
     },
   })
 
@@ -168,15 +220,18 @@ export default function Merchants() {
         )}
       </Card>
 
-      {/* Merchant list with rename + drill-down */}
+      {/* Merchant list with rename + category override + drill-down */}
       <Card style={{ padding: 0, overflow: 'hidden' }}>
         <div className="px-4 py-3" style={{ borderBottom: '1px solid var(--color-border)' }}>
           <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-secondary)' }}>All Merchants</p>
-          <p style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 2 }}>Hover to rename · click to drill down</p>
+          <p style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 2 }}>
+            Double-click name to rename · set category to override Plaid · click row to drill down
+          </p>
         </div>
-        <div className="overflow-y-auto" style={{ maxHeight: 360 }}>
+        <div className="overflow-y-auto" style={{ maxHeight: 400 }}>
           {merchants.map((m) => {
             const isSelected = selectedMerchant === m.merchant_normalized
+            const currentCat = categoryOverrides[m.merchant_normalized]
             return (
               <div
                 key={m.merchant_normalized}
@@ -194,6 +249,49 @@ export default function Merchants() {
                     onSave={(displayName) => saveMutation.mutate({ rawName: m.merchant_normalized, displayName })}
                   />
                 </div>
+
+                {/* Category override selector */}
+                <div onClick={(e) => e.stopPropagation()} style={{ flexShrink: 0 }}>
+                  <div className="flex items-center gap-1">
+                    {currentCat && (
+                      <span
+                        className="px-2 py-0.5 rounded-full"
+                        style={{ fontSize: 10, background: 'var(--color-accent)', color: '#000', fontWeight: 600 }}
+                      >
+                        {currentCat}
+                      </span>
+                    )}
+                    <select
+                      value={currentCat ?? ''}
+                      onChange={(e) => {
+                        const val = e.target.value
+                        if (!val) {
+                          deleteCategoryMutation.mutate(m.merchant_normalized)
+                        } else {
+                          saveCategoryMutation.mutate({ merchant: m.merchant_normalized, category: val })
+                        }
+                      }}
+                      style={{
+                        fontSize: 10,
+                        padding: '2px 4px',
+                        background: 'var(--color-surface-raise)',
+                        border: '1px solid var(--color-border)',
+                        borderRadius: 4,
+                        color: 'var(--color-text-muted)',
+                        cursor: 'pointer',
+                      }}
+                      title="Override category for this merchant"
+                    >
+                      <option value="">
+                        {currentCat ? 'Remove override' : 'Set category…'}
+                      </option>
+                      {CATEGORIES.map((cat) => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
                 <span style={{ fontSize: 11, color: 'var(--color-text-muted)', flexShrink: 0 }}>
                   {m.count} visits
                 </span>
@@ -290,6 +388,69 @@ export default function Merchants() {
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Apply historical dialog */}
+      {applyDialog && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 50,
+            background: 'rgba(0,0,0,0.55)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+          onClick={() => setApplyDialog(null)}
+        >
+          <div
+            className="rounded-xl p-6"
+            style={{
+              background: 'var(--color-surface)',
+              border: '1px solid var(--color-border)',
+              maxWidth: 420, width: '90%',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.4)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <Tag size={16} style={{ color: 'var(--color-accent)' }} />
+              <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                Apply to past transactions?
+              </p>
+            </div>
+            <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginBottom: 4 }}>
+              You set <strong>{applyDialog.merchant}</strong> to{' '}
+              <strong>{applyDialog.category}</strong>.
+            </p>
+            <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 20 }}>
+              Apply this category to all recorded past transactions from this merchant?
+              Individual transaction overrides will not be affected.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setApplyDialog(null)}
+                style={{
+                  fontSize: 13, padding: '6px 14px', borderRadius: 6,
+                  background: 'var(--color-surface-raise)',
+                  border: '1px solid var(--color-border)',
+                  color: 'var(--color-text-secondary)', cursor: 'pointer',
+                }}
+              >
+                Future only
+              </button>
+              <button
+                disabled={applyHistoricalMutation.isPending}
+                onClick={() => applyHistoricalMutation.mutate(applyDialog)}
+                style={{
+                  fontSize: 13, padding: '6px 14px', borderRadius: 6,
+                  background: 'var(--color-accent)', color: '#000',
+                  fontWeight: 600, cursor: 'pointer', border: 'none',
+                  opacity: applyHistoricalMutation.isPending ? 0.6 : 1,
+                }}
+              >
+                {applyHistoricalMutation.isPending ? 'Applying…' : 'Apply to all past'}
+              </button>
+            </div>
           </div>
         </div>
       )}

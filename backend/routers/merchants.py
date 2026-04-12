@@ -7,13 +7,21 @@ from pydantic import BaseModel
 
 from backend.dependencies import apply_filters, get_current_user
 from core import insights as ins
-from core.db import save_merchant_override, delete_merchant_override, get_merchant_overrides
+from core.db import (
+    save_merchant_override, delete_merchant_override, get_merchant_overrides,
+    get_merchant_category_overrides, upsert_merchant_category_override,
+    delete_merchant_category_override, bulk_apply_category_override,
+)
 
 router = APIRouter(prefix="/merchants", tags=["merchants"])
 
 
 class MerchantRenameBody(BaseModel):
     display_name: str
+
+
+class MerchantCategoryBody(BaseModel):
+    category: str
 
 
 def _df_to_records(df: pd.DataFrame) -> list:
@@ -61,6 +69,45 @@ def remove_override(
 ):
     delete_merchant_override(current_user["id"], unquote(raw_name))
     return {"ok": True}
+
+
+@router.get("/category-overrides")
+def list_category_overrides(current_user: dict = Depends(get_current_user)):
+    return get_merchant_category_overrides(current_user["id"])
+
+
+@router.put("/category-overrides/{merchant_name}")
+def upsert_category_override(
+    merchant_name: str,
+    body: MerchantCategoryBody,
+    current_user: dict = Depends(get_current_user),
+):
+    upsert_merchant_category_override(current_user["id"], unquote(merchant_name), body.category.strip())
+    return {"ok": True}
+
+
+@router.delete("/category-overrides/{merchant_name}")
+def remove_category_override(
+    merchant_name: str,
+    current_user: dict = Depends(get_current_user),
+):
+    delete_merchant_category_override(current_user["id"], unquote(merchant_name))
+    return {"ok": True}
+
+
+@router.post("/category-overrides/{merchant_name}/apply-historical")
+def apply_category_historical(
+    merchant_name: str,
+    body: MerchantCategoryBody,
+    current_user: dict = Depends(get_current_user),
+):
+    merchant = unquote(merchant_name)
+    df = ins.load_data(current_user["id"])
+    spending = ins.get_spending(df)
+    matching = spending[spending["merchant_normalized"] == merchant]
+    ids = matching["id"].tolist()
+    count = bulk_apply_category_override(ids, body.category.strip())
+    return {"count": count}
 
 
 @router.get("/{merchant_name}")
