@@ -97,6 +97,7 @@ export interface Transaction {
   pending: boolean
   notes: string
   has_user_override: boolean
+  is_manual: boolean
 }
 
 export interface LedgerSummary {
@@ -225,6 +226,12 @@ export const transactionsApi = {
 
   patch: (id: number, data: { category?: string; amount?: number; notes?: string }) =>
     api.patch<{ ok: boolean }>(`/transactions/${id}`, data).then((r) => r.data),
+
+  create: (data: { name: string; date: string; amount: number; category?: string; notes?: string }) =>
+    api.post<{ ok: boolean; id: string }>('/transactions', data).then((r) => r.data),
+
+  delete: (id: string) =>
+    api.delete<{ ok: boolean }>(`/transactions/${id}`).then((r) => r.data),
 }
 
 // ─── Ledger ──────────────────────────────────────────────────────────────────

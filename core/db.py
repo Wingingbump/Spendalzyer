@@ -137,6 +137,10 @@ def _run_migrations():
             "CREATE INDEX IF NOT EXISTS transactions_user_date_idx "
             "ON transactions (user_id, date DESC)"
         )
+        # Add is_manual column if not present (migration for existing DBs)
+        conn.execute("""
+            ALTER TABLE transactions ADD COLUMN IF NOT EXISTS is_manual BOOLEAN DEFAULT FALSE
+        """)
 
         # Overrides
         conn.execute("""
@@ -794,7 +798,8 @@ def fetch_transactions(user_id: int) -> list[dict]:
                 pa.subtype                         AS account_subtype,
                 COALESCE(o.notes, '')              AS notes,
                 (o.transaction_id IS NOT NULL
-                 AND o.category IS NOT NULL)       AS has_user_override
+                 AND o.category IS NOT NULL)       AS has_user_override,
+                COALESCE(t.is_manual, FALSE)       AS is_manual
             FROM transactions t
             LEFT JOIN overrides o       ON t.id = o.transaction_id
             LEFT JOIN plaid_accounts pa ON t.plaid_account_id = pa.plaid_account_id
@@ -838,6 +843,37 @@ def save_override(transaction_id: str, category: str = None,
                 notes      = COALESCE(EXCLUDED.notes,     overrides.notes),
                 updated_at = NOW()
         """, (transaction_id, category, amount, notes))
+
+
+def insert_manual_transaction(user_id: int, name: str, date: str, amount: float,
+                               category: str = None, notes: str = None) -> str:
+    import uuid
+    tx_id = f"manual_{uuid.uuid4().hex}"
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
+        conn.execute("""
+            INSERT INTO transactions
+                (id, date, name, amount, category, pending, institution, user_id, is_manual)
+            VALUES (%s, %s, %s, %s, %s, FALSE, 'Manual', %s, TRUE)
+        """, (tx_id, date, name, amount, category, user_id))
+        if notes:
+            conn.execute("""
+                INSERT INTO overrides (transaction_id, notes, updated_at)
+                VALUES (%s, %s, NOW())
+                ON CONFLICT (transaction_id) DO UPDATE SET notes = EXCLUDED.notes, updated_at = NOW()
+            """, (tx_id, notes))
+    return tx_id
+
+
+def delete_transaction(transaction_id: str, user_id: int) -> bool:
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
+        conn.execute("DELETE FROM overrides WHERE transaction_id = %s", (transaction_id,))
+        result = conn.execute(
+            "DELETE FROM transactions WHERE id = %s AND user_id = %s",
+            (transaction_id, user_id)
+        )
+    return result.rowcount > 0
 
 
 # ── Plaid accounts ────────────────────────────────────────────────────────────────

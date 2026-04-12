@@ -148,6 +148,14 @@ tr:hover td {
   background-color: var(--color-surface-raise);
 }
 
+tr:hover .delete-row-btn {
+  opacity: 1 !important;
+}
+
+.delete-row-btn:hover {
+  color: var(--color-negative) !important;
+}
+
 /* Editable cell */
 .editable-cell input,
 .editable-cell select {

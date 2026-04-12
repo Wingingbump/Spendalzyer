@@ -1,12 +1,13 @@
 from typing import Optional
 
 import pandas as pd
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from backend.dependencies import apply_filters, get_current_user
+from backend.limiter import limiter
 from core import insights as ins
-from core.db import save_override
+from core.db import delete_transaction, insert_manual_transaction, save_override
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
@@ -27,6 +28,14 @@ class OverrideBody(BaseModel):
     notes: Optional[str] = None
 
 
+class CreateTransactionBody(BaseModel):
+    name: str
+    date: str
+    amount: float
+    category: Optional[str] = None
+    notes: Optional[str] = None
+
+
 @router.get("")
 def list_transactions(
     range: str = Query("30d"),
@@ -40,7 +49,8 @@ def list_transactions(
 
     spending = ins.get_spending(df)
     cols = [c for c in ["id", "date", "name", "merchant_normalized", "category",
-                         "amount", "institution", "pending", "notes"]
+                         "amount", "institution", "pending", "notes",
+                         "has_user_override", "is_manual"]
             if c in spending.columns]
     result = spending[cols].sort_values("date", ascending=False).reset_index(drop=True)
 
@@ -56,6 +66,24 @@ def list_transactions(
     return _df_to_records(result)
 
 
+@router.post("")
+@limiter.limit("30/minute")
+def create_transaction(
+    request: Request,
+    body: CreateTransactionBody,
+    current_user: dict = Depends(get_current_user),
+):
+    tx_id = insert_manual_transaction(
+        user_id=current_user["id"],
+        name=body.name,
+        date=body.date,
+        amount=body.amount,
+        category=body.category,
+        notes=body.notes,
+    )
+    return {"ok": True, "id": tx_id}
+
+
 @router.patch("/{transaction_id}")
 def patch_transaction(
     transaction_id: str,
@@ -68,4 +96,17 @@ def patch_transaction(
         amount=body.amount,
         notes=body.notes,
     )
+    return {"ok": True}
+
+
+@router.delete("/{transaction_id}")
+@limiter.limit("30/minute")
+def delete_transaction_endpoint(
+    request: Request,
+    transaction_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    deleted = delete_transaction(transaction_id, current_user["id"])
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Transaction not found")
     return {"ok": True}

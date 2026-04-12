@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Search, Check, ChevronUp, ChevronDown } from 'lucide-react'
+import { Search, Check, ChevronUp, ChevronDown, Plus, Trash2, X } from 'lucide-react'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
 import { transactionsApi, categoriesApi, workspaceApi, merchantsApi } from '../lib/api'
 import type { Transaction } from '../lib/api'
@@ -31,6 +31,16 @@ interface SavedState {
   [id: number]: boolean
 }
 
+const today = new Date().toISOString().split('T')[0]
+
+interface AddForm {
+  name: string
+  date: string
+  amount: string
+  category: string
+  notes: string
+}
+
 export default function Transactions() {
   const { range, institution, account } = useFilters()
   const { activeGroup } = useWorkspace()
@@ -43,6 +53,9 @@ export default function Transactions() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [editingMerchant, setEditingMerchant] = useState<number | null>(null)
   const [merchantDraft, setMerchantDraft] = useState('')
+  const [showAdd, setShowAdd] = useState(false)
+  const [addForm, setAddForm] = useState<AddForm>({ name: '', date: today, amount: '', category: 'Other', notes: '' })
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const qc = useQueryClient()
   const chartColors = theme === 'dark' ? CHART_COLORS_DARK : CHART_COLORS_LIGHT
 
@@ -77,6 +90,43 @@ export default function Transactions() {
     },
   })
 
+
+  const createMutation = useMutation({
+    mutationFn: (data: { name: string; date: string; amount: number; category?: string; notes?: string }) =>
+      transactionsApi.create(data),
+    onSuccess: () => {
+      setShowAdd(false)
+      setAddForm({ name: '', date: today, amount: '', category: 'Other', notes: '' })
+      qc.invalidateQueries({ queryKey: ['transactions'] })
+      qc.invalidateQueries({ queryKey: ['summary'] })
+      qc.invalidateQueries({ queryKey: ['monthly'] })
+      qc.invalidateQueries({ queryKey: ['categories'] })
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => transactionsApi.delete(id),
+    onSuccess: () => {
+      setConfirmDelete(null)
+      qc.invalidateQueries({ queryKey: ['transactions'] })
+      qc.invalidateQueries({ queryKey: ['summary'] })
+      qc.invalidateQueries({ queryKey: ['monthly'] })
+      qc.invalidateQueries({ queryKey: ['categories'] })
+    },
+  })
+
+  const handleAddSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    const amount = parseFloat(addForm.amount)
+    if (!addForm.name.trim() || isNaN(amount)) return
+    createMutation.mutate({
+      name: addForm.name.trim(),
+      date: addForm.date,
+      amount,
+      category: addForm.category || undefined,
+      notes: addForm.notes.trim() || undefined,
+    })
+  }
 
   const renameMerchantMutation = useMutation({
     mutationFn: ({ rawName, displayName }: { rawName: string; displayName: string }) =>
@@ -168,6 +218,120 @@ export default function Transactions() {
   return (
     <div className="space-y-4 fade-in" style={{ paddingBottom: drawerOpen ? 'calc(45vh + 56px)' : 56, transition: 'padding-bottom 0.25s ease' }}>
       <ActiveGroupBanner />
+
+      {/* Add Transaction Modal */}
+      {showAdd && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setShowAdd(false)}
+        >
+          <div
+            style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 12, padding: 24, width: 400, position: 'relative' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between" style={{ marginBottom: 16 }}>
+              <h2 style={{ fontSize: 16, fontWeight: 600, color: 'var(--color-text-primary)' }}>Add Transaction</h2>
+              <button onClick={() => setShowAdd(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: 4 }}>
+                <X size={16} />
+              </button>
+            </div>
+            <form onSubmit={handleAddSubmit} className="flex flex-col gap-3">
+              <div>
+                <label style={{ fontSize: 12, color: 'var(--color-text-muted)', display: 'block', marginBottom: 4 }}>Name *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Coffee shop"
+                  value={addForm.name}
+                  onChange={(e) => setAddForm((f) => ({ ...f, name: e.target.value }))}
+                  style={{ width: '100%' }}
+                />
+              </div>
+              <div className="flex gap-3">
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: 12, color: 'var(--color-text-muted)', display: 'block', marginBottom: 4 }}>Date *</label>
+                  <input
+                    type="date"
+                    required
+                    value={addForm.date}
+                    onChange={(e) => setAddForm((f) => ({ ...f, date: e.target.value }))}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: 12, color: 'var(--color-text-muted)', display: 'block', marginBottom: 4 }}>Amount * <span style={{ fontWeight: 400 }}>(negative = income)</span></label>
+                  <input
+                    type="number"
+                    required
+                    step="0.01"
+                    placeholder="0.00"
+                    value={addForm.amount}
+                    onChange={(e) => setAddForm((f) => ({ ...f, amount: e.target.value }))}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: 'var(--color-text-muted)', display: 'block', marginBottom: 4 }}>Category</label>
+                <select
+                  value={addForm.category}
+                  onChange={(e) => setAddForm((f) => ({ ...f, category: e.target.value }))}
+                  style={{ width: '100%' }}
+                >
+                  {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: 'var(--color-text-muted)', display: 'block', marginBottom: 4 }}>Notes</label>
+                <input
+                  type="text"
+                  placeholder="Optional note"
+                  value={addForm.notes}
+                  onChange={(e) => setAddForm((f) => ({ ...f, notes: e.target.value }))}
+                  style={{ width: '100%' }}
+                />
+              </div>
+              <div className="flex gap-2 justify-end" style={{ marginTop: 4 }}>
+                <button type="button" onClick={() => setShowAdd(false)} style={{ padding: '6px 14px', fontSize: 13, background: 'none', border: '1px solid var(--color-border)', borderRadius: 6, cursor: 'pointer', color: 'var(--color-text-secondary)' }}>
+                  Cancel
+                </button>
+                <button type="submit" disabled={createMutation.isPending} style={{ padding: '6px 14px', fontSize: 13, background: 'var(--color-accent)', border: 'none', borderRadius: 6, cursor: 'pointer', color: '#fff', opacity: createMutation.isPending ? 0.6 : 1 }}>
+                  {createMutation.isPending ? 'Adding…' : 'Add'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm Delete Dialog */}
+      {confirmDelete && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setConfirmDelete(null)}
+        >
+          <div
+            style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 12, padding: 24, width: 320 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 style={{ fontSize: 15, fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 8 }}>Delete transaction?</h2>
+            <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 20 }}>This cannot be undone.</p>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setConfirmDelete(null)} style={{ padding: '6px 14px', fontSize: 13, background: 'none', border: '1px solid var(--color-border)', borderRadius: 6, cursor: 'pointer', color: 'var(--color-text-secondary)' }}>
+                Cancel
+              </button>
+              <button
+                onClick={() => deleteMutation.mutate(confirmDelete)}
+                disabled={deleteMutation.isPending}
+                style={{ padding: '6px 14px', fontSize: 13, background: 'var(--color-negative)', border: 'none', borderRadius: 6, cursor: 'pointer', color: '#fff', opacity: deleteMutation.isPending ? 0.6 : 1 }}
+              >
+                {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <div>
           <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--color-text-primary)' }}>Transactions</h1>
@@ -175,18 +339,27 @@ export default function Transactions() {
             Click fields to edit
           </p>
         </div>
-        <div className="relative">
-          <Search
-            size={14}
-            style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }}
-          />
-          <input
-            type="search"
-            placeholder="Search transactions…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{ paddingLeft: 30, width: 240 }}
-          />
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowAdd(true)}
+            className="flex items-center gap-1.5"
+            style={{ padding: '6px 12px', fontSize: 13, background: 'var(--color-accent)', border: 'none', borderRadius: 6, cursor: 'pointer', color: '#fff', fontWeight: 500 }}
+          >
+            <Plus size={14} /> Add
+          </button>
+          <div className="relative">
+            <Search
+              size={14}
+              style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }}
+            />
+            <input
+              type="search"
+              placeholder="Search transactions…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              style={{ paddingLeft: 30, width: 240 }}
+            />
+          </div>
         </div>
       </div>
 
@@ -206,6 +379,7 @@ export default function Transactions() {
                 <th>Institution</th>
                 <th>Notes</th>
                 <th style={{ width: 30 }}></th>
+                <th style={{ width: 28 }}></th>
                 {activeGroup && <th style={{ width: 28 }}></th>}
               </tr>
             </thead>
@@ -343,6 +517,16 @@ export default function Transactions() {
                             }}
                           />
                         )}
+                      </td>
+                      <td>
+                        <button
+                          onClick={() => setConfirmDelete(String(tx.id))}
+                          title="Delete transaction"
+                          className="delete-row-btn"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: 2, opacity: 0, transition: 'opacity 0.15s', display: 'flex', alignItems: 'center' }}
+                        >
+                          <Trash2 size={12} />
+                        </button>
                       </td>
                       {activeGroup && (() => {
                         const txId = String(tx.id)
