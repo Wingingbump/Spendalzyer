@@ -310,6 +310,15 @@ export const categoriesApi = {
 
   deleteMapping: (external_category: string) =>
     api.delete<{ ok: boolean }>(`/categories/mappings/${encodeURIComponent(external_category)}`).then((r) => r.data),
+
+  userCategories: () =>
+    api.get<string[]>('/categories/user').then((r) => r.data),
+
+  createUserCategory: (name: string) =>
+    api.post<{ ok: boolean }>('/categories/user', { name }).then((r) => r.data),
+
+  deleteUserCategory: (name: string) =>
+    api.delete<{ ok: boolean }>(`/categories/user/${encodeURIComponent(name)}`).then((r) => r.data),
 }
 
 // ─── Accounts ────────────────────────────────────────────────────────────────

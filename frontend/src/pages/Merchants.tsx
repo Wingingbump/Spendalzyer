@@ -4,7 +4,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts'
 import { Check, X, Tag } from 'lucide-react'
-import { merchantsApi } from '../lib/api'
+import { merchantsApi, categoriesApi } from '../lib/api'
 import { useFilters } from '../context/FilterContext'
 import { useTheme } from '../context/ThemeContext'
 import { formatCurrency, formatDate, CHART_COLORS_DARK, CHART_COLORS_LIGHT } from '../lib/utils'
@@ -12,18 +12,6 @@ import Card from '../components/Card'
 import Spinner from '../components/Spinner'
 import SkeletonRow from '../components/SkeletonRow'
 
-const CATEGORIES = [
-  'Food & Drink',
-  'Transport',
-  'Shopping',
-  'Subscriptions',
-  'Health',
-  'Utilities',
-  'Travel',
-  'Payments',
-  'Income / Interest',
-  'Other',
-]
 
 function MerchantTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: { merchant_normalized: string; total: number; count: number } }> }) {
   if (!active || !payload?.length) return null
@@ -114,6 +102,12 @@ export default function Merchants() {
   const { data: categoryOverrides = {} } = useQuery({
     queryKey: ['merchant-category-overrides'],
     queryFn: () => merchantsApi.categoryOverrides(),
+  })
+
+  const { data: userCategories = [] } = useQuery({
+    queryKey: ['user-categories'],
+    queryFn: () => categoriesApi.userCategories(),
+    staleTime: 300_000,
   })
 
   const saveMutation = useMutation({
@@ -285,7 +279,7 @@ export default function Merchants() {
                       <option value="">
                         {currentCat ? 'Remove override' : 'Set category…'}
                       </option>
-                      {CATEGORIES.map((cat) => (
+                      {userCategories.map((cat) => (
                         <option key={cat} value={cat}>{cat}</option>
                       ))}
                     </select>

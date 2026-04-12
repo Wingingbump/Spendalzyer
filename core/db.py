@@ -228,6 +228,18 @@ def _run_migrations():
             )
         """)
 
+        # User-defined categories — the list that appears in all dropdowns
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_categories (
+                id         SERIAL PRIMARY KEY,
+                user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                name       TEXT NOT NULL,
+                position   INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE (user_id, name)
+            )
+        """)
+
         # Merchant category overrides — per-user merchant→category rules
         conn.execute("""
             CREATE TABLE IF NOT EXISTS merchant_category_overrides (
@@ -1214,6 +1226,74 @@ def delete_merchant_override(user_id: int, raw_name: str):
         conn.execute(
             "DELETE FROM merchant_overrides WHERE user_id = %s AND raw_name = %s",
             (user_id, raw_name)
+        )
+
+
+# ── User categories ──────────────────────────────────────────────────────────────
+
+DEFAULT_CATEGORIES = [
+    "Food & Drink",
+    "Groceries",
+    "Transport",
+    "Shopping",
+    "Subscriptions",
+    "Health & Fitness",
+    "Utilities",
+    "Travel",
+    "Entertainment",
+    "Personal Care",
+    "Home",
+    "Education",
+    "Business Services",
+    "Income",
+    "Transfer",
+    "Other",
+]
+
+
+def _seed_user_categories(user_id: int):
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
+        conn.executemany("""
+            INSERT INTO user_categories (user_id, name, position)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (user_id, name) DO NOTHING
+        """, [(user_id, name, i) for i, name in enumerate(DEFAULT_CATEGORIES)])
+
+
+def get_user_categories(user_id: int) -> list:
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
+        rows = conn.execute(
+            "SELECT name FROM user_categories WHERE user_id = %s ORDER BY position, id",
+            (user_id,)
+        ).fetchall()
+    if not rows:
+        _seed_user_categories(user_id)
+        return DEFAULT_CATEGORIES[:]
+    return [r["name"] for r in rows]
+
+
+def add_user_category(user_id: int, name: str):
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
+        max_pos = conn.execute(
+            "SELECT COALESCE(MAX(position), -1) AS m FROM user_categories WHERE user_id = %s",
+            (user_id,)
+        ).fetchone()["m"]
+        conn.execute("""
+            INSERT INTO user_categories (user_id, name, position)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (user_id, name) DO NOTHING
+        """, (user_id, name.strip(), max_pos + 1))
+
+
+def delete_user_category(user_id: int, name: str):
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
+        conn.execute(
+            "DELETE FROM user_categories WHERE user_id = %s AND name = %s",
+            (user_id, name)
         )
 
 

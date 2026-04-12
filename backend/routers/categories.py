@@ -7,7 +7,10 @@ from pydantic import BaseModel
 
 from backend.dependencies import apply_filters, get_current_user
 from core import insights as ins
-from core.db import load_category_map, upsert_category_mapping, delete_category_mapping
+from core.db import (
+    load_category_map, upsert_category_mapping, delete_category_mapping,
+    get_user_categories, add_user_category, delete_user_category,
+)
 
 router = APIRouter(prefix="/categories", tags=["categories"])
 
@@ -25,6 +28,31 @@ def _df_to_records(df: pd.DataFrame) -> list:
 class MappingBody(BaseModel):
     external_category: str
     internal_category: str
+
+
+class UserCategoryBody(BaseModel):
+    name: str
+
+
+@router.get("/user")
+def list_user_categories(current_user: dict = Depends(get_current_user)):
+    return get_user_categories(current_user["id"])
+
+
+@router.post("/user")
+def create_user_category(body: UserCategoryBody, current_user: dict = Depends(get_current_user)):
+    name = body.name.strip()
+    if not name:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=422, detail="Category name cannot be empty")
+    add_user_category(current_user["id"], name)
+    return {"ok": True}
+
+
+@router.delete("/user/{name}")
+def remove_user_category(name: str, current_user: dict = Depends(get_current_user)):
+    delete_user_category(current_user["id"], unquote(name))
+    return {"ok": True}
 
 
 @router.get("/mappings")

@@ -13,11 +13,6 @@ import { formatCurrency, formatDate, CHART_COLORS_DARK, CHART_COLORS_LIGHT } fro
 import SkeletonRow from '../components/SkeletonRow'
 import { ActiveGroupBanner } from '../components/RightPanel'
 
-const CATEGORIES = [
-  'Food & Drink', 'Groceries', 'Shopping', 'Transportation', 'Entertainment',
-  'Bills & Utilities', 'Health & Fitness', 'Travel', 'Personal Care',
-  'Home', 'Education', 'Business Services', 'Income', 'Transfer', 'Other',
-]
 
 interface EditState {
   [id: number]: {
@@ -66,9 +61,9 @@ export default function Transactions() {
     queryFn: () => transactionsApi.list({ range, institution, account, search }),
   })
 
-  const { data: categoryMappings = [] } = useQuery({
-    queryKey: ['category-mappings'],
-    queryFn: () => categoriesApi.mappings(),
+  const { data: userCategories = [] } = useQuery({
+    queryKey: ['user-categories'],
+    queryFn: () => categoriesApi.userCategories(),
     staleTime: 300_000,
   })
 
@@ -76,13 +71,6 @@ export default function Transactions() {
     queryKey: ['merchant-category-overrides'],
     queryFn: () => merchantsApi.categoryOverrides(),
   })
-
-  // Collect all known categories
-  const allCategories = Array.from(new Set([
-    ...CATEGORIES,
-    ...categoryMappings.map((m) => m.internal_category),
-    ...transactions.map((t) => t.category).filter(Boolean),
-  ])).sort()
 
   const patchMutation = useMutation({
     mutationFn: ({ id, data }: { id: number; data: { category?: string; amount?: number; notes?: string } }) =>
@@ -304,7 +292,7 @@ export default function Transactions() {
                   onChange={(e) => setAddForm((f) => ({ ...f, category: e.target.value }))}
                   style={{ width: '100%' }}
                 >
-                  {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                  {userCategories.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
               <div>
@@ -486,10 +474,10 @@ export default function Transactions() {
                           }}
                           style={{ fontSize: 12, minWidth: 140, border: 'none', background: 'var(--color-surface)', color: 'var(--color-text-primary)', padding: '2px 24px 2px 4px' }}
                         >
-                          {allCategories.map((c) => (
+                          {userCategories.map((c) => (
                             <option key={c} value={c}>{c}</option>
                           ))}
-                          {!allCategories.includes(currentCategory) && currentCategory && (
+                          {!userCategories.includes(currentCategory) && currentCategory && (
                             <option value={currentCategory}>{currentCategory}</option>
                           )}
                         </select>

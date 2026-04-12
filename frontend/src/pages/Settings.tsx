@@ -3,18 +3,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Trash2, Plus, Sun, Moon, CreditCard, Shield, Palette, Tag, Pencil, AlertTriangle, UserCircle, FileText, ChevronDown, ChevronUp } from 'lucide-react'
+import { Trash2, Plus, Sun, Moon, CreditCard, Shield, Palette, Tag, AlertTriangle, UserCircle, FileText, ChevronDown, ChevronUp } from 'lucide-react'
 import { accountsApi, plaidApi, settingsApi, categoriesApi } from '../lib/api'
 import { useTheme } from '../context/ThemeContext'
 import { useAuth } from '../context/AuthContext'
 import Card from '../components/Card'
 import Spinner from '../components/Spinner'
-
-const CATEGORIES = [
-  'Food & Drink', 'Groceries', 'Shopping', 'Transportation', 'Entertainment',
-  'Bills & Utilities', 'Health & Fitness', 'Travel', 'Personal Care',
-  'Home', 'Education', 'Business Services', 'Income', 'Transfer', 'Other',
-]
 
 // Profile schema
 const profileSchema = z.object({
@@ -38,14 +32,6 @@ const passwordSchema = z
   })
 
 type PasswordFormData = z.infer<typeof passwordSchema>
-
-// Mapping schema
-const mappingSchema = z.object({
-  external_category: z.string().min(1, 'External category is required'),
-  internal_category: z.string().min(1, 'Internal category is required'),
-})
-
-type MappingFormData = z.infer<typeof mappingSchema>
 
 const POLICIES = [
   {
@@ -359,62 +345,38 @@ export default function Settings() {
     }
   }
 
-  // ── Category Mappings ────────────────────────────────────────────────────────
-  const { data: mappings = [], isLoading: loadingMappings } = useQuery({
-    queryKey: ['category-mappings'],
-    queryFn: () => categoriesApi.mappings(),
+  // ── User Categories ───────────────────────────────────────────────────────────
+  const { data: userCategories = [], isLoading: loadingCategories } = useQuery({
+    queryKey: ['user-categories'],
+    queryFn: () => categoriesApi.userCategories(),
   })
 
-  const [mappingError, setMappingError] = useState('')
-  const [mappingSuccess, setMappingSuccess] = useState(false)
-  const [editingMapping, setEditingMapping] = useState<string | null>(null) // external_category being edited
-  const [editingValue, setEditingValue] = useState('')
+  const [newCategoryName, setNewCategoryName] = useState('')
+  const [categoryError, setCategoryError] = useState('')
 
-  const {
-    register: registerMapping,
-    handleSubmit: handleMappingSubmit,
-    reset: resetMapping,
-    formState: { errors: mappingErrors, isSubmitting: mappingSubmitting },
-  } = useForm<MappingFormData>({ resolver: zodResolver(mappingSchema) })
-
-  const upsertMappingMutation = useMutation({
-    mutationFn: ({ external_category, internal_category }: { external_category: string; internal_category: string }) =>
-      categoriesApi.addMapping(external_category, internal_category),
+  const addCategoryMutation = useMutation({
+    mutationFn: (name: string) => categoriesApi.createUserCategory(name),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['category-mappings'] })
-      setEditingMapping(null)
+      qc.invalidateQueries({ queryKey: ['user-categories'] })
+      setNewCategoryName('')
+      setCategoryError('')
     },
+    onError: () => setCategoryError('Failed to add category'),
   })
 
-  const deleteMappingMutation = useMutation({
-    mutationFn: (external_category: string) => categoriesApi.deleteMapping(external_category),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['category-mappings'] }),
+  const deleteCategoryMutation = useMutation({
+    mutationFn: (name: string) => categoriesApi.deleteUserCategory(name),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['user-categories'] }),
   })
 
-  const onMappingSubmit = async (data: MappingFormData) => {
-    setMappingError('')
-    setMappingSuccess(false)
-    try {
-      await categoriesApi.addMapping(data.external_category, data.internal_category)
-      setMappingSuccess(true)
-      resetMapping()
-      qc.invalidateQueries({ queryKey: ['category-mappings'] })
-      setTimeout(() => setMappingSuccess(false), 2000)
-    } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } }
-      setMappingError(axiosErr.response?.data?.detail || 'Failed to add mapping')
+  const handleAddCategory = () => {
+    const name = newCategoryName.trim()
+    if (!name) return
+    if (userCategories.includes(name)) {
+      setCategoryError('Category already exists')
+      return
     }
-  }
-
-  const startEditMapping = (external_category: string, current_internal: string) => {
-    setEditingMapping(external_category)
-    setEditingValue(current_internal)
-  }
-
-  const saveEditMapping = () => {
-    if (editingMapping && editingValue) {
-      upsertMappingMutation.mutate({ external_category: editingMapping, internal_category: editingValue })
-    }
+    addCategoryMutation.mutate(name)
   }
 
   // ── Account Deletion ─────────────────────────────────────────────────────────
@@ -678,126 +640,56 @@ export default function Settings() {
         </div>
       </Card>
 
-      {/* ── Section 4: Category Mappings ────────────────────────────────────── */}
+      {/* ── Section 4: My Categories ─────────────────────────────────────────── */}
       <Card>
-        <SectionHeader icon={Tag} title="Category Mappings" />
-        <p className="mb-4" style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>
-          Control how imported category names map to your internal categories.
+        <SectionHeader icon={Tag} title="My Categories" />
+        <p className="mb-5" style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>
+          These categories appear in all transaction dropdowns. Add your own or remove ones you don't use.
         </p>
 
-        {loadingMappings ? (
+        {loadingCategories ? (
           <Spinner size={16} />
-        ) : mappings.length > 0 ? (
-          <div className="rounded-lg overflow-hidden mb-4" style={{ border: '1px solid var(--color-border)' }}>
-            <table>
-              <thead>
-                <tr>
-                  <th>External Category</th>
-                  <th>Maps To</th>
-                  <th style={{ width: 72 }}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {mappings.map((m, i) => (
-                  <tr key={i}>
-                    <td style={{ fontSize: 13 }}>{m.external_category}</td>
-                    <td style={{ fontSize: 13 }}>
-                      {editingMapping === m.external_category ? (
-                        <select
-                          value={editingValue}
-                          onChange={(e) => setEditingValue(e.target.value)}
-                          onBlur={saveEditMapping}
-                          autoFocus
-                          style={{ fontSize: 12, padding: '2px 8px' }}
-                        >
-                          {CATEGORIES.map((c) => (
-                            <option key={c} value={c}>{c}</option>
-                          ))}
-                          {!CATEGORIES.includes(editingValue) && editingValue && (
-                            <option value={editingValue}>{editingValue}</option>
-                          )}
-                        </select>
-                      ) : (
-                        <span
-                          className="px-2 py-0.5 rounded-full"
-                          style={{ background: 'var(--color-surface-raise)', fontSize: 12 }}
-                        >
-                          {m.internal_category}
-                        </span>
-                      )}
-                    </td>
-                    <td>
-                      <div className="flex items-center gap-1 justify-end">
-                        <button
-                          onClick={() => startEditMapping(m.external_category, m.internal_category)}
-                          title="Edit"
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: '2px 4px' }}
-                        >
-                          <Pencil size={12} />
-                        </button>
-                        <button
-                          onClick={() => deleteMappingMutation.mutate(m.external_category)}
-                          title="Delete"
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-negative)', padding: '2px 4px' }}
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
         ) : (
-          <p className="mb-4" style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>No mappings configured.</p>
+          <div className="flex flex-wrap gap-2 mb-5">
+            {userCategories.map((cat) => (
+              <div
+                key={cat}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full"
+                style={{ background: 'var(--color-surface-raise)', border: '1px solid var(--color-border)' }}
+              >
+                <span style={{ fontSize: 13, color: 'var(--color-text-primary)' }}>{cat}</span>
+                <button
+                  onClick={() => deleteCategoryMutation.mutate(cat)}
+                  title="Remove category"
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: 0, display: 'flex', alignItems: 'center', lineHeight: 1 }}
+                >
+                  <Trash2 size={11} />
+                </button>
+              </div>
+            ))}
+          </div>
         )}
 
-        <form onSubmit={handleMappingSubmit(onMappingSubmit)}>
-          <p className="mb-3" style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-secondary)' }}>
-            Add New Mapping
-          </p>
-          <div className="flex items-start gap-3">
-            <div className="flex-1">
-              <input
-                {...registerMapping('external_category')}
-                type="text"
-                placeholder="External (e.g. FOOD_AND_DRINK)"
-                className="w-full"
-              />
-              {mappingErrors.external_category && (
-                <p className="mt-1" style={{ fontSize: 11, color: 'var(--color-negative)' }}>
-                  {mappingErrors.external_category.message}
-                </p>
-              )}
-            </div>
-            <div className="flex-1">
-              <select {...registerMapping('internal_category')} className="w-full">
-                <option value="">Select category…</option>
-                {CATEGORIES.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-              {mappingErrors.internal_category && (
-                <p className="mt-1" style={{ fontSize: 11, color: 'var(--color-negative)' }}>
-                  {mappingErrors.internal_category.message}
-                </p>
-              )}
-            </div>
-            <button
-              type="submit"
-              disabled={mappingSubmitting}
-              className="px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-medium transition-opacity disabled:opacity-60 flex-shrink-0"
-              style={{ background: 'var(--color-accent)', color: '#000', fontSize: 13 }}
-            >
-              <Plus size={13} />
-              Add
-            </button>
-          </div>
-
-          {mappingError && <p className="mt-2" style={{ fontSize: 12, color: 'var(--color-negative)' }}>{mappingError}</p>}
-          {mappingSuccess && <p className="mt-2" style={{ fontSize: 12, color: 'var(--color-positive)' }}>Mapping added</p>}
-        </form>
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            placeholder="New category name…"
+            value={newCategoryName}
+            onChange={(e) => { setNewCategoryName(e.target.value); setCategoryError('') }}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleAddCategory() }}
+            style={{ flex: 1 }}
+          />
+          <button
+            onClick={handleAddCategory}
+            disabled={addCategoryMutation.isPending || !newCategoryName.trim()}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-opacity disabled:opacity-50"
+            style={{ background: 'var(--color-accent)', color: '#000', fontSize: 13, border: 'none', cursor: 'pointer', flexShrink: 0 }}
+          >
+            <Plus size={13} />
+            Add
+          </button>
+        </div>
+        {categoryError && <p className="mt-2" style={{ fontSize: 12, color: 'var(--color-negative)' }}>{categoryError}</p>}
       </Card>
 
       {/* ── Section 5: Danger Zone ───────────────────────────────────────────── */}

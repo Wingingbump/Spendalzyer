@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Search, Check, Plus, Trash2, X, Tag, Download } from 'lucide-react'
-import { ledgerApi, transactionsApi, workspaceApi, merchantsApi } from '../lib/api'
+import { ledgerApi, transactionsApi, workspaceApi, merchantsApi, categoriesApi } from '../lib/api'
 import { useFilters } from '../context/FilterContext'
 import { useWorkspace } from '../context/WorkspaceContext'
 import { usePanel } from '../context/PanelContext'
@@ -21,11 +21,6 @@ interface SavedState {
   [id: number]: boolean
 }
 
-const CATEGORIES = [
-  'Food & Drink', 'Groceries', 'Shopping', 'Transportation', 'Entertainment',
-  'Bills & Utilities', 'Health & Fitness', 'Travel', 'Personal Care',
-  'Home', 'Education', 'Business Services', 'Income', 'Transfer', 'Other',
-]
 
 const today = new Date().toISOString().split('T')[0]
 
@@ -78,6 +73,12 @@ export default function Ledger() {
   })
 
   const groupTxIds = new Set((groupTxData?.transaction_ids ?? []).map(String))
+
+  const { data: userCategories = [] } = useQuery({
+    queryKey: ['user-categories'],
+    queryFn: () => categoriesApi.userCategories(),
+    staleTime: 300_000,
+  })
 
   const rows = ledgerData?.rows ?? []
   const summary = ledgerData?.summary
@@ -259,7 +260,7 @@ export default function Ledger() {
                   onChange={(e) => setAddForm((f) => ({ ...f, category: e.target.value }))}
                   style={{ width: '100%' }}
                 >
-                  {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                  {userCategories.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
               <div>
@@ -494,10 +495,10 @@ export default function Ledger() {
                           }}
                           style={{ fontSize: 12, minWidth: 130, border: 'none', background: 'var(--color-surface)', color: 'var(--color-text-primary)', padding: '2px 24px 2px 4px' }}
                         >
-                          {CATEGORIES.map((c) => (
+                          {userCategories.map((c) => (
                             <option key={c} value={c}>{c}</option>
                           ))}
-                          {!CATEGORIES.includes(currentCategory) && currentCategory && (
+                          {!userCategories.includes(currentCategory) && currentCategory && (
                             <option value={currentCategory}>{currentCategory}</option>
                           )}
                         </select>
