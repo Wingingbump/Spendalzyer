@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from 'recharts'
-import { ShoppingBag, Store, Calendar, CreditCard, X } from 'lucide-react'
+import { ShoppingBag, Store, Calendar, CreditCard, X, BarChart2, ArrowLeftRight, Bot, ChevronRight, ChevronLeft } from 'lucide-react'
 import { accountsApi, insightsApi } from '../lib/api'
 import { useFilters } from '../context/FilterContext'
 import { useTheme } from '../context/ThemeContext'
@@ -47,17 +47,59 @@ function DowTooltip({ active, payload, label }: { active?: boolean; payload?: Ar
 }
 
 
-function ConnectBanner({ onDismiss }: { onDismiss: () => void }) {
+const TOUR_SLIDES = [
+  {
+    icon: CreditCard,
+    iconBg: 'rgba(200,255,0,0.12)',
+    iconColor: 'var(--color-accent)',
+    title: 'Welcome to spend.',
+    body: 'spend. pulls your real transactions from your bank and turns them into insights — and eventually, personalized AI advice. Let\'s show you around.',
+    cta: null,
+  },
+  {
+    icon: BarChart2,
+    iconBg: 'rgba(200,255,0,0.12)',
+    iconColor: 'var(--color-accent)',
+    title: 'Overview',
+    body: 'Your financial snapshot. See total spending, monthly trends, top categories, and your biggest purchases — all filterable by account and time range.',
+    cta: null,
+  },
+  {
+    icon: ArrowLeftRight,
+    iconBg: 'rgba(90,191,138,0.12)',
+    iconColor: 'var(--color-positive)',
+    title: 'Transactions',
+    body: 'Every transaction in one place. Search, filter by category, and edit details. The Ledger tab gives you an income vs. expenses view.',
+    cta: null,
+  },
+  {
+    icon: Bot,
+    iconBg: 'rgba(139,92,246,0.12)',
+    iconColor: '#8b5cf6',
+    title: 'Advisor',
+    body: 'Ask your AI financial advisor anything. It reads your actual spending data to give you specific, actionable answers — not generic advice.',
+    cta: null,
+  },
+  {
+    icon: CreditCard,
+    iconBg: 'rgba(200,255,0,0.12)',
+    iconColor: 'var(--color-accent)',
+    title: 'First step: connect an account',
+    body: 'Head to Settings to connect your bank via Plaid. Once connected, your transactions will sync automatically and everything comes to life.',
+    cta: 'Go to Settings',
+  },
+]
+
+function OnboardingTour({ onDismiss }: { onDismiss: () => void }) {
   const navigate = useNavigate()
+  const [step, setStep] = useState(0)
+  const slide = TOUR_SLIDES[step]
+  const Icon = slide.icon
+  const isLast = step === TOUR_SLIDES.length - 1
+
   return (
-    <div
-      className="fixed inset-0 flex items-center justify-center"
-      style={{ background: 'rgba(0,0,0,0.55)', zIndex: 50 }}
-    >
-      <div
-        className="rounded-2xl p-8 w-full relative"
-        style={{ maxWidth: 420, background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
-      >
+    <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.55)', zIndex: 50 }}>
+      <div className="rounded-2xl p-8 w-full relative" style={{ maxWidth: 440, background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
         <button
           onClick={onDismiss}
           style={{ position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: 4 }}
@@ -65,34 +107,58 @@ function ConnectBanner({ onDismiss }: { onDismiss: () => void }) {
           <X size={16} />
         </button>
 
-        <div
-          className="w-12 h-12 rounded-xl flex items-center justify-center mb-5"
-          style={{ background: 'rgba(200,255,0,0.12)' }}
-        >
-          <CreditCard size={22} style={{ color: 'var(--color-accent)' }} />
+        {/* Step dots */}
+        <div className="flex gap-1.5 mb-6">
+          {TOUR_SLIDES.map((_, i) => (
+            <div
+              key={i}
+              className="rounded-full transition-all"
+              style={{
+                width: i === step ? 20 : 6,
+                height: 6,
+                background: i === step ? 'var(--color-accent)' : 'var(--color-border)',
+              }}
+            />
+          ))}
+        </div>
+
+        <div className="w-12 h-12 rounded-xl flex items-center justify-center mb-5" style={{ background: slide.iconBg }}>
+          <Icon size={22} style={{ color: slide.iconColor }} />
         </div>
 
         <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--color-text-primary)', marginBottom: 8 }}>
-          Connect your first account
+          {slide.title}
         </h2>
-        <p style={{ fontSize: 13, color: 'var(--color-text-muted)', lineHeight: 1.65, marginBottom: 24 }}>
-          spend. works by pulling your real transactions from your bank. Connect a bank account to start seeing your spending insights and get personalized advice.
+        <p style={{ fontSize: 13, color: 'var(--color-text-muted)', lineHeight: 1.65, marginBottom: 28 }}>
+          {slide.body}
         </p>
 
-        <div className="flex gap-3">
+        <div className="flex items-center gap-3">
+          {step > 0 && (
+            <button
+              onClick={() => setStep(s => s - 1)}
+              className="px-4 py-2.5 rounded-lg font-medium flex items-center gap-1.5"
+              style={{ background: 'var(--color-surface-raise)', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)', fontSize: 13 }}
+            >
+              <ChevronLeft size={14} /> Back
+            </button>
+          )}
           <button
-            onClick={() => navigate('/settings')}
-            className="flex-1 py-2.5 rounded-lg font-semibold"
+            onClick={() => {
+              if (isLast && slide.cta) {
+                onDismiss()
+                navigate('/settings')
+              } else if (isLast) {
+                onDismiss()
+              } else {
+                setStep(s => s + 1)
+              }
+            }}
+            className="flex-1 py-2.5 rounded-lg font-semibold flex items-center justify-center gap-1.5"
             style={{ background: 'var(--color-accent)', color: '#000', fontSize: 14 }}
           >
-            Connect account
-          </button>
-          <button
-            onClick={onDismiss}
-            className="px-4 py-2.5 rounded-lg font-medium"
-            style={{ background: 'var(--color-surface-raise)', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)', fontSize: 14 }}
-          >
-            Later
+            {isLast ? (slide.cta ?? 'Done') : 'Next'}
+            {!isLast && <ChevronRight size={14} />}
           </button>
         </div>
       </div>
@@ -152,7 +218,7 @@ export default function Overview() {
 
   return (
     <div className="space-y-5 fade-in">
-      {showBanner && <ConnectBanner onDismiss={dismissBanner} />}
+      {showBanner && <OnboardingTour onDismiss={dismissBanner} />}
       <div>
         <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--color-text-primary)' }}>Overview</h1>
         <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginTop: 2 }}>
