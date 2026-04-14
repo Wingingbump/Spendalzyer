@@ -1,12 +1,13 @@
 
 import { useEffect, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from 'recharts'
-import { ShoppingBag, Store, Calendar, CreditCard, X, BarChart2, ArrowLeftRight, Bot, ChevronRight, ChevronLeft } from 'lucide-react'
-import { accountsApi, insightsApi } from '../lib/api'
+import { ShoppingBag, Store, Calendar, CreditCard, X, BarChart2, ArrowLeftRight, Bot, ChevronRight, ChevronLeft, AlertTriangle, RefreshCw, CheckCircle } from 'lucide-react'
+import { accountsApi, insightsApi, syncApi } from '../lib/api'
+import type { HealthWarning } from '../lib/api'
 import { useFilters } from '../context/FilterContext'
 import { useTheme } from '../context/ThemeContext'
 import { useAuth } from '../context/AuthContext'
@@ -166,6 +167,110 @@ function OnboardingTour({ onDismiss }: { onDismiss: () => void }) {
   )
 }
 
+function DataHealthCard() {
+  const qc = useQueryClient()
+
+  const { data: health, isLoading } = useQuery({
+    queryKey: ['data-health'],
+    queryFn: () => insightsApi.health(),
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+  })
+
+  const syncMutation = useMutation({
+    mutationFn: () => syncApi.sync(true),
+    onSuccess: () => {
+      qc.invalidateQueries()
+    },
+  })
+
+  if (isLoading) return null
+  if (!health) return null
+
+  const isOk = health.status === 'ok'
+  const isError = health.status === 'error'
+  const warnings = health.warnings
+
+  if (isOk) {
+    return (
+      <div
+        className="flex items-center gap-2 px-4 py-2.5 rounded-xl"
+        style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
+      >
+        <CheckCircle size={14} style={{ color: 'var(--color-positive)', flexShrink: 0 }} />
+        <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>All data looks healthy</span>
+      </div>
+    )
+  }
+
+  return (
+    <div
+      className="rounded-xl"
+      style={{
+        background: isError ? 'rgba(232, 96, 96, 0.06)' : 'rgba(232, 193, 122, 0.06)',
+        border: `1px solid ${isError ? 'rgba(232, 96, 96, 0.3)' : 'rgba(232, 193, 122, 0.3)'}`,
+        padding: '14px 16px',
+      }}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-start gap-2.5 flex-1 min-w-0">
+          <AlertTriangle
+            size={15}
+            style={{ color: isError ? 'var(--color-negative)' : '#e8c17a', flexShrink: 0, marginTop: 1 }}
+          />
+          <div className="flex-1 min-w-0">
+            <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 6 }}>
+              {warnings.length === 1 ? 'Data issue detected' : `${warnings.length} data issues detected`}
+            </p>
+            <div className="flex flex-col gap-1.5">
+              {warnings.map((w: HealthWarning, i: number) => {
+                const icon =
+                  w.type === 'item_error' || w.type === 'consent_expired' || w.type === 'sync_failure' ? '⚠ ' :
+                  w.type === 'consent_expiring' ? '🔑 ' :
+                  w.type === 'stuck_pending' ? '⏳ ' :
+                  w.type === 'volume_drop' ? '📉 ' :
+                  w.type === 'missing_recurring' ? '↻ ' : '⬤ '
+                return (
+                  <p key={i} style={{ fontSize: 12, color: 'var(--color-text-secondary)', lineHeight: 1.45 }}>
+                    {icon}{w.message}
+                  </p>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+          <button
+            onClick={() => syncMutation.mutate()}
+            disabled={syncMutation.isPending}
+            className="flex items-center gap-1.5"
+            style={{
+              padding: '5px 12px',
+              fontSize: 12,
+              fontWeight: 600,
+              background: isError ? 'var(--color-negative)' : '#e8c17a',
+              color: '#000',
+              border: 'none',
+              borderRadius: 6,
+              cursor: 'pointer',
+              opacity: syncMutation.isPending ? 0.7 : 1,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <RefreshCw size={11} className={syncMutation.isPending ? 'spinner' : ''} />
+            {syncMutation.isPending ? 'Syncing…' : 'Full history sync'}
+          </button>
+          {syncMutation.isSuccess && (
+            <span style={{ fontSize: 11, color: 'var(--color-positive)' }}>
+              +{(syncMutation.data as { synced_count?: number })?.synced_count ?? 0} transactions pulled
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Overview() {
   const { range, institution, account } = useFilters()
   const { theme } = useTheme()
@@ -225,6 +330,8 @@ export default function Overview() {
           Your spending summary
         </p>
       </div>
+
+      <DataHealthCard />
 
       {/* Metric Cards */}
       <div className="grid grid-cols-3 gap-4">

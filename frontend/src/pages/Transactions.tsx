@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Search, Check, ChevronUp, ChevronDown, Plus, Trash2, X, Tag } from 'lucide-react'
+import { Search, Check, ChevronUp, ChevronDown, Plus, Trash2, X, Tag, AlertTriangle } from 'lucide-react'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
 import { transactionsApi, categoriesApi, workspaceApi, merchantsApi } from '../lib/api'
 import type { Transaction } from '../lib/api'
@@ -9,7 +9,7 @@ import { useWorkspace } from '../context/WorkspaceContext'
 import { useTheme } from '../context/ThemeContext'
 import { usePanel } from '../context/PanelContext'
 import { PANEL_WIDTH } from '../components/RightPanel'
-import { formatCurrency, formatDate, CHART_COLORS_DARK, CHART_COLORS_LIGHT } from '../lib/utils'
+import { formatCurrency, formatDate, CHART_COLORS_DARK, CHART_COLORS_LIGHT, getCategoryColor } from '../lib/utils'
 import SkeletonRow from '../components/SkeletonRow'
 import { ActiveGroupBanner } from '../components/RightPanel'
 
@@ -53,6 +53,7 @@ export default function Transactions() {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [merchantSuggestion, setMerchantSuggestion] = useState<{ merchant: string; category: string } | null>(null)
   const [applyDialog, setApplyDialog] = useState<{ merchant: string; category: string } | null>(null)
+  const [expandedDup, setExpandedDup] = useState<number | null>(null)
   const qc = useQueryClient()
   const chartColors = theme === 'dark' ? CHART_COLORS_DARK : CHART_COLORS_LIGHT
 
@@ -148,6 +149,15 @@ export default function Transactions() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['transactions'] })
       setApplyDialog(null)
+    },
+  })
+
+  const dismissDupMutation = useMutation({
+    mutationFn: ({ id, otherId }: { id: string; otherId: string }) =>
+      transactionsApi.dismissDuplicate(id, otherId),
+    onSuccess: () => {
+      setExpandedDup(null)
+      qc.invalidateQueries({ queryKey: ['transactions'] })
     },
   })
 
@@ -420,14 +430,26 @@ export default function Transactions() {
                     : (tx.notes ?? '')
 
                   return (
-                    <tr key={tx.id}>
+                    <React.Fragment key={tx.id}>
+                    <tr>
                       <td style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
                         {formatDate(tx.date)}
                       </td>
                       <td>
-                        <span style={{ fontSize: 12, maxWidth: 160, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {tx.name}
-                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, maxWidth: 170 }}>
+                          <span style={{ fontSize: 12, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {tx.name}
+                          </span>
+                          {tx.is_potential_duplicate && (
+                            <button
+                              onClick={() => setExpandedDup(expandedDup === tx.id ? null : tx.id)}
+                              title="Possible duplicate — click to review"
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', flexShrink: 0 }}
+                            >
+                              <AlertTriangle size={12} style={{ color: '#e8c17a' }} />
+                            </button>
+                          )}
+                        </div>
                       </td>
                       <td className="editable-cell">
                         {editingMerchant === tx.id ? (
@@ -455,32 +477,35 @@ export default function Transactions() {
                             {categoryOverrides[tx.merchant_normalized] && (
                               <div
                                 title={`Category rule: ${categoryOverrides[tx.merchant_normalized]}`}
-                                style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--color-accent)', flexShrink: 0 }}
+                                style={{ width: 6, height: 6, borderRadius: '50%', background: getCategoryColor(categoryOverrides[tx.merchant_normalized]), flexShrink: 0 }}
                               />
                             )}
                           </div>
                         )}
                       </td>
                       <td className="editable-cell">
-                        <select
-                          value={currentCategory}
-                          onChange={(e) => {
-                            const newCat = e.target.value
-                            setEdit(tx.id, 'category', newCat)
-                            patchMutation.mutate({ id: tx.id, data: { category: newCat } })
-                            if (tx.merchant_normalized) {
-                              setMerchantSuggestion({ merchant: tx.merchant_normalized, category: newCat })
-                            }
-                          }}
-                          style={{ fontSize: 12, minWidth: 140, border: 'none', background: 'var(--color-surface)', color: 'var(--color-text-primary)', padding: '2px 24px 2px 4px' }}
-                        >
-                          {userCategories.map((c) => (
-                            <option key={c} value={c}>{c}</option>
-                          ))}
-                          {!userCategories.includes(currentCategory) && currentCategory && (
-                            <option value={currentCategory}>{currentCategory}</option>
-                          )}
-                        </select>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                          <div style={{ width: 7, height: 7, borderRadius: '50%', background: getCategoryColor(currentCategory), flexShrink: 0 }} />
+                          <select
+                            value={currentCategory}
+                            onChange={(e) => {
+                              const newCat = e.target.value
+                              setEdit(tx.id, 'category', newCat)
+                              patchMutation.mutate({ id: tx.id, data: { category: newCat } })
+                              if (tx.merchant_normalized) {
+                                setMerchantSuggestion({ merchant: tx.merchant_normalized, category: newCat })
+                              }
+                            }}
+                            style={{ fontSize: 12, minWidth: 130, border: 'none', background: 'var(--color-surface)', color: 'var(--color-text-primary)', padding: '2px 24px 2px 2px' }}
+                          >
+                            {userCategories.map((c) => (
+                              <option key={c} value={c}>{c}</option>
+                            ))}
+                            {!userCategories.includes(currentCategory) && currentCategory && (
+                              <option value={currentCategory}>{currentCategory}</option>
+                            )}
+                          </select>
+                        </div>
                       </td>
                       <td style={{ textAlign: 'right' }} className="editable-cell">
                         <input
@@ -576,6 +601,43 @@ export default function Transactions() {
                         )
                       })()}
                     </tr>
+                    {expandedDup === tx.id && tx.is_potential_duplicate && (() => {
+                      const dupOf = tx.potential_dup_of
+                        ? (typeof tx.potential_dup_of === 'string' ? JSON.parse(tx.potential_dup_of) : tx.potential_dup_of)
+                        : null
+                      return (
+                        <tr>
+                          <td colSpan={activeGroup ? 10 : 9} style={{ padding: 0 }}>
+                            <div style={{ background: 'rgba(232,193,122,0.07)', borderTop: '1px solid rgba(232,193,122,0.25)', borderBottom: '1px solid rgba(232,193,122,0.25)', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 16 }}>
+                              <AlertTriangle size={13} style={{ color: '#e8c17a', flexShrink: 0 }} />
+                              <div style={{ flex: 1, fontSize: 12, color: 'var(--color-text-secondary)' }}>
+                                <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>Possible duplicate</span>
+                                {dupOf && (
+                                  <span> — looks like <span style={{ color: 'var(--color-text-primary)' }}>{dupOf.name}</span> on {dupOf.date} for {formatCurrency(dupOf.amount)}</span>
+                                )}
+                              </div>
+                              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                                <button
+                                  onClick={() => deleteMutation.mutate(String(tx.id))}
+                                  disabled={deleteMutation.isPending}
+                                  style={{ fontSize: 11, padding: '3px 10px', borderRadius: 5, background: 'var(--color-negative)', border: 'none', color: '#fff', cursor: 'pointer', fontWeight: 600 }}
+                                >
+                                  Delete this one
+                                </button>
+                                <button
+                                  onClick={() => dupOf && dismissDupMutation.mutate({ id: String(tx.id), otherId: dupOf.id })}
+                                  disabled={dismissDupMutation.isPending}
+                                  style={{ fontSize: 11, padding: '3px 10px', borderRadius: 5, background: 'var(--color-surface-raise)', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)', cursor: 'pointer' }}
+                                >
+                                  Keep both
+                                </button>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })()}
+                    </React.Fragment>
                   )
                 })
               )}
@@ -671,7 +733,7 @@ export default function Transactions() {
       {merchantSuggestion && (
         <div
           style={{
-            position: 'fixed', bottom: 68, right: 24, zIndex: 40,
+            position: 'fixed', bottom: 68, right: rhsWidth + 24, zIndex: 40,
             background: 'var(--color-surface)',
             border: '1px solid var(--color-border)',
             borderRadius: 10, padding: '12px 16px',

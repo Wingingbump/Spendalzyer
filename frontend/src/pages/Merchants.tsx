@@ -7,7 +7,7 @@ import { Check, X, Tag } from 'lucide-react'
 import { merchantsApi, categoriesApi } from '../lib/api'
 import { useFilters } from '../context/FilterContext'
 import { useTheme } from '../context/ThemeContext'
-import { formatCurrency, formatDate, CHART_COLORS_DARK, CHART_COLORS_LIGHT } from '../lib/utils'
+import { formatCurrency, formatDate, CHART_COLORS_DARK, CHART_COLORS_LIGHT, getCategoryColor } from '../lib/utils'
 import Card from '../components/Card'
 import Spinner from '../components/Spinner'
 import SkeletonRow from '../components/SkeletonRow'
@@ -250,7 +250,7 @@ export default function Merchants() {
                     {currentCat && (
                       <span
                         className="px-2 py-0.5 rounded-full"
-                        style={{ fontSize: 10, background: 'var(--color-accent)', color: '#000', fontWeight: 600 }}
+                        style={{ fontSize: 10, background: getCategoryColor(currentCat), color: '#fff', fontWeight: 600 }}
                       >
                         {currentCat}
                       </span>

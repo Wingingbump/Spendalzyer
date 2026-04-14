@@ -251,6 +251,32 @@ def _run_migrations():
             )
         """)
 
+        # Plaid item health — cached result of /item/get per connected account
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS plaid_item_health (
+                connected_account_id INTEGER PRIMARY KEY
+                                     REFERENCES connected_accounts(id) ON DELETE CASCADE,
+                error_code           TEXT,
+                error_message        TEXT,
+                consent_expiration_time TIMESTAMPTZ,
+                last_successful_update  TIMESTAMPTZ,
+                last_failed_update      TIMESTAMPTZ,
+                checked_at           TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+
+        # Dismissed duplicate pairs — user-confirmed "these are not duplicates"
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS dismissed_duplicates (
+                id               SERIAL PRIMARY KEY,
+                user_id          INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                transaction_id_a TEXT    NOT NULL,
+                transaction_id_b TEXT    NOT NULL,
+                created_at       TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(user_id, transaction_id_a, transaction_id_b)
+            )
+        """)
+
         # Budgets
         conn.execute("""
             CREATE TABLE IF NOT EXISTS budgets (
@@ -832,6 +858,43 @@ def fetch_transactions(user_id: int) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def get_pending_transactions_in_window(user_id: int, plaid_account_ids: list[str],
+                                        start_date: str, end_date: str) -> list[dict]:
+    """Return all pending transactions for the given accounts within the date window."""
+    if not plaid_account_ids:
+        return []
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
+        placeholders = ",".join(["%s"] * len(plaid_account_ids))
+        rows = conn.execute(f"""
+            SELECT id, date, name, amount, plaid_account_id
+            FROM transactions
+            WHERE user_id = %s
+              AND pending = TRUE
+              AND plaid_account_id IN ({placeholders})
+              AND date BETWEEN %s AND %s
+              AND is_manual IS NOT TRUE
+        """, (user_id, *plaid_account_ids, start_date, end_date)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_transactions_by_ids(transaction_ids: list[str]) -> int:
+    """Hard-delete transactions by ID. Used to remove stale pending entries."""
+    if not transaction_ids:
+        return 0
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = 'bypass'")
+        placeholders = ",".join(["%s"] * len(transaction_ids))
+        # Delete overrides first (FK), then the transactions
+        conn.execute(f"DELETE FROM overrides WHERE transaction_id IN ({placeholders})",
+                     transaction_ids)
+        result = conn.execute(
+            f"DELETE FROM transactions WHERE id IN ({placeholders})",
+            transaction_ids
+        )
+    return result.rowcount
+
+
 def upsert_transactions(transactions: list[dict]):
     with get_conn() as conn:
         conn.execute("SET LOCAL app.current_user_id = 'bypass'")
@@ -1344,6 +1407,82 @@ def bulk_apply_category_override(transaction_ids: list, category: str) -> int:
                 updated_at = NOW()
         """, [(tid, category) for tid in transaction_ids])
     return len(transaction_ids)
+
+
+# ── Dismissed duplicates ─────────────────────────────────────────────────────────
+
+def get_dismissed_duplicate_pairs(user_id: int) -> set:
+    """Return set of frozensets({id_a, id_b}) for pairs the user has dismissed."""
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
+        rows = conn.execute(
+            "SELECT transaction_id_a, transaction_id_b FROM dismissed_duplicates WHERE user_id = %s",
+            (user_id,)
+        ).fetchall()
+    return {frozenset([r["transaction_id_a"], r["transaction_id_b"]]) for r in rows}
+
+
+def dismiss_duplicate_pair(user_id: int, id_a: str, id_b: str):
+    """Record that the user confirmed two transactions are NOT duplicates."""
+    # Normalize order so the unique constraint fires correctly regardless of which
+    # ID the caller passes as a or b.
+    a, b = sorted([str(id_a), str(id_b)])
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
+        conn.execute("""
+            INSERT INTO dismissed_duplicates (user_id, transaction_id_a, transaction_id_b)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (user_id, transaction_id_a, transaction_id_b) DO NOTHING
+        """, (user_id, a, b))
+
+
+# ── Plaid item health ────────────────────────────────────────────────────────────
+
+def upsert_item_health(connected_account_id: int, data: dict):
+    """
+    Store the result of a /item/get call for a connected account.
+    `data` keys: error_code, error_message, consent_expiration_time,
+                 last_successful_update, last_failed_update
+    """
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = 'bypass'")
+        conn.execute("""
+            INSERT INTO plaid_item_health (
+                connected_account_id, error_code, error_message,
+                consent_expiration_time, last_successful_update,
+                last_failed_update, checked_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, NOW())
+            ON CONFLICT (connected_account_id) DO UPDATE SET
+                error_code              = EXCLUDED.error_code,
+                error_message           = EXCLUDED.error_message,
+                consent_expiration_time = EXCLUDED.consent_expiration_time,
+                last_successful_update  = EXCLUDED.last_successful_update,
+                last_failed_update      = EXCLUDED.last_failed_update,
+                checked_at              = NOW()
+        """, (
+            connected_account_id,
+            data.get("error_code"),
+            data.get("error_message"),
+            data.get("consent_expiration_time"),
+            data.get("last_successful_update"),
+            data.get("last_failed_update"),
+        ))
+
+
+def get_item_health(user_id: int) -> list[dict]:
+    """Return item health rows for all connected accounts belonging to user_id."""
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = 'bypass'")
+        rows = conn.execute("""
+            SELECT ca.id AS connected_account_id, ca.name AS institution_name,
+                   ih.error_code, ih.error_message,
+                   ih.consent_expiration_time, ih.last_successful_update,
+                   ih.last_failed_update, ih.checked_at
+            FROM connected_accounts ca
+            LEFT JOIN plaid_item_health ih ON ih.connected_account_id = ca.id
+            WHERE ca.user_id = %s
+        """, (user_id,)).fetchall()
+        return [dict(r) for r in rows]
 
 
 # ── Account deletion ─────────────────────────────────────────────────────────────

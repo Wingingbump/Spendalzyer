@@ -68,3 +68,43 @@ export function getChartColor(index: number, theme: 'dark' | 'light' = 'dark'): 
 
 export const CHART_COLORS_DARK = DARK_CHART_COLORS
 export const CHART_COLORS_LIGHT = LIGHT_CHART_COLORS
+
+/**
+ * Consistent per-category colors for UI accents (dots, badges, etc.)
+ */
+const CATEGORY_COLOR_MAP: Record<string, string> = {
+  'Food & Drink':       '#f97316',
+  'Groceries':          '#22c55e',
+  'Transport':          '#3b82f6',
+  'Shopping':           '#a855f7',
+  'Subscriptions':      '#06b6d4',
+  'Health & Fitness':   '#ec4899',
+  'Utilities':          '#eab308',
+  'Travel':             '#0ea5e9',
+  'Entertainment':      '#d946ef',
+  'Personal Care':      '#f43f5e',
+  'Home':               '#14b8a6',
+  'Education':          '#6366f1',
+  'Business Services':  '#7c3aed',
+  'Income':             '#10b981',
+  'Transfer':           '#94a3b8',
+  'Other':              '#6b7280',
+}
+
+const FALLBACK_COLORS = [
+  '#f97316', '#22c55e', '#3b82f6', '#a855f7', '#06b6d4',
+  '#ec4899', '#eab308', '#0ea5e9', '#d946ef', '#f43f5e',
+]
+
+const _dynamicCache: Record<string, string> = {}
+let _dynamicIndex = 0
+
+export function getCategoryColor(category: string): string {
+  if (!category) return '#6b7280'
+  if (CATEGORY_COLOR_MAP[category]) return CATEGORY_COLOR_MAP[category]
+  if (_dynamicCache[category]) return _dynamicCache[category]
+  const color = FALLBACK_COLORS[_dynamicIndex % FALLBACK_COLORS.length]
+  _dynamicCache[category] = color
+  _dynamicIndex++
+  return color
+}

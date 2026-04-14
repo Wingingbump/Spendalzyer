@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from backend.dependencies import apply_filters, get_current_user
 from backend.limiter import limiter
 from core import insights as ins
-from core.db import delete_transaction, insert_manual_transaction, save_override
+from core.db import delete_transaction, insert_manual_transaction, save_override, dismiss_duplicate_pair
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
@@ -36,6 +36,10 @@ class CreateTransactionBody(BaseModel):
     notes: Optional[str] = None
 
 
+class DismissDuplicateBody(BaseModel):
+    other_id: str
+
+
 @router.get("")
 def list_transactions(
     range: str = Query("30d"),
@@ -50,7 +54,8 @@ def list_transactions(
     spending = ins.get_spending(df)
     cols = [c for c in ["id", "date", "name", "merchant_normalized", "category",
                          "amount", "institution", "pending", "notes",
-                         "has_user_override", "is_manual"]
+                         "has_user_override", "is_manual",
+                         "is_potential_duplicate", "potential_dup_of"]
             if c in spending.columns]
     result = spending[cols].sort_values("date", ascending=False).reset_index(drop=True)
 
@@ -96,6 +101,16 @@ def patch_transaction(
         amount=body.amount,
         notes=body.notes,
     )
+    return {"ok": True}
+
+
+@router.post("/{transaction_id}/dismiss-duplicate")
+def dismiss_duplicate(
+    transaction_id: str,
+    body: DismissDuplicateBody,
+    current_user: dict = Depends(get_current_user),
+):
+    dismiss_duplicate_pair(current_user["id"], transaction_id, body.other_id)
     return {"ok": True}
 
 

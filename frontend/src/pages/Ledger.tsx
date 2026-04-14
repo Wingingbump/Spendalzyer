@@ -1,12 +1,12 @@
 import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Search, Check, Plus, Trash2, X, Tag, Download } from 'lucide-react'
+import { Search, Check, Plus, Trash2, X, Tag, Download, AlertTriangle } from 'lucide-react'
 import { ledgerApi, transactionsApi, workspaceApi, merchantsApi, categoriesApi } from '../lib/api'
 import { useFilters } from '../context/FilterContext'
 import { useWorkspace } from '../context/WorkspaceContext'
 import { usePanel } from '../context/PanelContext'
 import { PANEL_WIDTH } from '../components/RightPanel'
-import { formatCurrency, formatDate } from '../lib/utils'
+import { formatCurrency, formatDate, getCategoryColor } from '../lib/utils'
 import SkeletonRow from '../components/SkeletonRow'
 import { ActiveGroupBanner } from '../components/RightPanel'
 
@@ -50,6 +50,7 @@ export default function Ledger() {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [merchantSuggestion, setMerchantSuggestion] = useState<{ merchant: string; category: string } | null>(null)
   const [applyDialog, setApplyDialog] = useState<{ merchant: string; category: string } | null>(null)
+  const [expandedDup, setExpandedDup] = useState<number | null>(null)
   const qc = useQueryClient()
 
   const { data: ledgerData, isLoading } = useQuery({
@@ -130,6 +131,15 @@ export default function Ledger() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['ledger'] })
       setApplyDialog(null)
+    },
+  })
+
+  const dismissDupMutation = useMutation({
+    mutationFn: ({ id, otherId }: { id: string; otherId: string }) =>
+      transactionsApi.dismissDuplicate(id, otherId),
+    onSuccess: () => {
+      setExpandedDup(null)
+      qc.invalidateQueries({ queryKey: ['ledger'] })
     },
   })
 
@@ -441,14 +451,26 @@ export default function Ledger() {
                   if (row.is_transfer) rowStyle.color = 'var(--color-text-muted)'
 
                   return (
-                    <tr key={row.id} style={rowStyle}>
+                    <React.Fragment key={row.id}>
+                    <tr style={rowStyle}>
                       <td style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
                         {formatDate(row.date)}
                       </td>
                       <td>
-                        <span style={{ fontSize: 12, maxWidth: 160, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {row.name}
-                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, maxWidth: 170 }}>
+                          <span style={{ fontSize: 12, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {row.name}
+                          </span>
+                          {row.is_potential_duplicate && (
+                            <button
+                              onClick={() => setExpandedDup(expandedDup === row.id ? null : row.id)}
+                              title="Possible duplicate — click to review"
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', flexShrink: 0 }}
+                            >
+                              <AlertTriangle size={12} style={{ color: '#e8c17a' }} />
+                            </button>
+                          )}
+                        </div>
                       </td>
                       <td className="editable-cell">
                         {editingMerchant === row.id ? (
@@ -476,32 +498,35 @@ export default function Ledger() {
                             {categoryOverrides[row.merchant_normalized] && (
                               <div
                                 title={`Category rule: ${categoryOverrides[row.merchant_normalized]}`}
-                                style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--color-accent)', flexShrink: 0 }}
+                                style={{ width: 6, height: 6, borderRadius: '50%', background: getCategoryColor(categoryOverrides[row.merchant_normalized]), flexShrink: 0 }}
                               />
                             )}
                           </div>
                         )}
                       </td>
                       <td className="editable-cell">
-                        <select
-                          value={currentCategory}
-                          onChange={(e) => {
-                            const newCat = e.target.value
-                            setEdit(row.id, 'category', newCat)
-                            patchMutation.mutate({ id: row.id, data: { category: newCat } })
-                            if (row.merchant_normalized) {
-                              setMerchantSuggestion({ merchant: row.merchant_normalized, category: newCat })
-                            }
-                          }}
-                          style={{ fontSize: 12, minWidth: 130, border: 'none', background: 'var(--color-surface)', color: 'var(--color-text-primary)', padding: '2px 24px 2px 4px' }}
-                        >
-                          {userCategories.map((c) => (
-                            <option key={c} value={c}>{c}</option>
-                          ))}
-                          {!userCategories.includes(currentCategory) && currentCategory && (
-                            <option value={currentCategory}>{currentCategory}</option>
-                          )}
-                        </select>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                          <div style={{ width: 7, height: 7, borderRadius: '50%', background: getCategoryColor(currentCategory), flexShrink: 0 }} />
+                          <select
+                            value={currentCategory}
+                            onChange={(e) => {
+                              const newCat = e.target.value
+                              setEdit(row.id, 'category', newCat)
+                              patchMutation.mutate({ id: row.id, data: { category: newCat } })
+                              if (row.merchant_normalized) {
+                                setMerchantSuggestion({ merchant: row.merchant_normalized, category: newCat })
+                              }
+                            }}
+                            style={{ fontSize: 12, minWidth: 120, border: 'none', background: 'var(--color-surface)', color: 'var(--color-text-primary)', padding: '2px 24px 2px 2px' }}
+                          >
+                            {userCategories.map((c) => (
+                              <option key={c} value={c}>{c}</option>
+                            ))}
+                            {!userCategories.includes(currentCategory) && currentCategory && (
+                              <option value={currentCategory}>{currentCategory}</option>
+                            )}
+                          </select>
+                        </div>
                       </td>
                       <td style={{ textAlign: 'right', fontFamily: 'monospace', fontSize: 12 }}>
                         <span style={{ color: row.amount < 0 ? 'var(--color-positive)' : 'var(--color-text-primary)' }}>
@@ -587,6 +612,43 @@ export default function Ledger() {
                         )
                       })()}
                     </tr>
+                    {expandedDup === row.id && row.is_potential_duplicate && (() => {
+                      const dupOf = row.potential_dup_of
+                        ? (typeof row.potential_dup_of === 'string' ? JSON.parse(row.potential_dup_of) : row.potential_dup_of)
+                        : null
+                      return (
+                        <tr>
+                          <td colSpan={activeGroup ? 11 : 10} style={{ padding: 0 }}>
+                            <div style={{ background: 'rgba(232,193,122,0.07)', borderTop: '1px solid rgba(232,193,122,0.25)', borderBottom: '1px solid rgba(232,193,122,0.25)', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 16 }}>
+                              <AlertTriangle size={13} style={{ color: '#e8c17a', flexShrink: 0 }} />
+                              <div style={{ flex: 1, fontSize: 12, color: 'var(--color-text-secondary)' }}>
+                                <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>Possible duplicate</span>
+                                {dupOf && (
+                                  <span> — looks like <span style={{ color: 'var(--color-text-primary)' }}>{dupOf.name}</span> on {dupOf.date} for {formatCurrency(dupOf.amount)}</span>
+                                )}
+                              </div>
+                              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                                <button
+                                  onClick={() => deleteMutation.mutate(String(row.id))}
+                                  disabled={deleteMutation.isPending}
+                                  style={{ fontSize: 11, padding: '3px 10px', borderRadius: 5, background: 'var(--color-negative)', border: 'none', color: '#fff', cursor: 'pointer', fontWeight: 600 }}
+                                >
+                                  Delete this one
+                                </button>
+                                <button
+                                  onClick={() => dupOf && dismissDupMutation.mutate({ id: String(row.id), otherId: dupOf.id })}
+                                  disabled={dismissDupMutation.isPending}
+                                  style={{ fontSize: 11, padding: '3px 10px', borderRadius: 5, background: 'var(--color-surface-raise)', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)', cursor: 'pointer' }}
+                                >
+                                  Keep both
+                                </button>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })()}
+                    </React.Fragment>
                   )
                 })
               )}
@@ -600,7 +662,7 @@ export default function Ledger() {
       {merchantSuggestion && (
         <div
           style={{
-            position: 'fixed', bottom: 68, right: 24, zIndex: 40,
+            position: 'fixed', bottom: 68, right: rhsWidth + 24, zIndex: 40,
             background: 'var(--color-surface)',
             border: '1px solid var(--color-border)',
             borderRadius: 10, padding: '12px 16px',

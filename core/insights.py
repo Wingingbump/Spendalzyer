@@ -3,8 +3,8 @@ from datetime import date
 from dateutil.relativedelta import relativedelta
 import numpy as np
 from core.categorize import apply_categories
-from core.dedup import apply_dedup, get_clean_spending
-from core.db import fetch_transactions, get_merchant_overrides, get_merchant_category_overrides
+from core.dedup import apply_dedup, get_clean_spending, flag_potential_duplicates
+from core.db import fetch_transactions, get_merchant_overrides, get_merchant_category_overrides, get_dismissed_duplicate_pairs
 
 
 # ── Data loading ───────────────────────────────────────────────────────────────
@@ -28,6 +28,8 @@ def load_data(user_id: int) -> pd.DataFrame:
             "type": pd.Series(dtype=str),
             "is_transfer": pd.Series(dtype=bool),
             "is_duplicate": pd.Series(dtype=bool),
+            "is_potential_duplicate": pd.Series(dtype=bool),
+            "potential_dup_of": pd.Series(dtype=str),
             "merchant_normalized": pd.Series(dtype=str),
             "dedup_reason": pd.Series(dtype=str),
         })
@@ -57,6 +59,9 @@ def load_data(user_id: int) -> pd.DataFrame:
     df = df.drop(columns=["has_user_override", "override_category"])
 
     df = apply_dedup(df)
+
+    dismissed = get_dismissed_duplicate_pairs(user_id)
+    df = flag_potential_duplicates(df, dismissed)
 
     # Apply per-user merchant display name overrides (keyed by AI-normalized name)
     overrides = get_merchant_overrides(user_id)

@@ -250,18 +250,31 @@ export default function Sidebar() {
         >
           <RefreshCw
             size={13}
-            className={syncMutation.isPending ? 'spinner' : ''}
+            className={syncMutation.isPending && !syncMutation.variables?.fullSync ? 'spinner' : ''}
           />
-          {syncMutation.isPending ? 'Syncing…' : 'Sync Now'}
+          {syncMutation.isPending && !syncMutation.variables?.fullSync ? 'Syncing…' : 'Sync Now'}
+        </button>
+        <button
+          onClick={() => syncMutation.mutate({ fullSync: true })}
+          disabled={syncMutation.isPending}
+          title="Re-pull full transaction history from Plaid (up to 24 months). Use this if transactions are missing."
+          className="flex items-center gap-1.5 w-full px-3 py-1.5 rounded-lg transition-opacity disabled:opacity-50"
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', fontSize: 11, marginTop: 4 }}
+        >
+          <RefreshCw
+            size={11}
+            className={syncMutation.isPending && syncMutation.variables?.fullSync ? 'spinner' : ''}
+          />
+          {syncMutation.isPending && syncMutation.variables?.fullSync ? 'Full sync…' : 'Full history sync'}
         </button>
         {syncMutation.isSuccess && (
-          <p className="mt-1.5" style={{ fontSize: 11, color: 'var(--color-positive)' }}>
+          <p className="mt-1" style={{ fontSize: 11, color: 'var(--color-positive)' }}>
             +{syncMutation.data?.synced_count ?? 0} transactions
           </p>
         )}
 
         {syncMutation.isError && (
-          <p className="mt-1.5" style={{ fontSize: 11, color: 'var(--color-negative)' }}>
+          <p className="mt-1" style={{ fontSize: 11, color: 'var(--color-negative)' }}>
             Sync failed
           </p>
         )}

@@ -86,6 +86,13 @@ export interface PlaidAccount {
   institution: string
 }
 
+export interface PotentialDupOf {
+  id: string
+  name: string
+  date: string
+  amount: number
+}
+
 export interface Transaction {
   id: number
   date: string
@@ -98,6 +105,8 @@ export interface Transaction {
   notes: string
   has_user_override: boolean
   is_manual: boolean
+  is_potential_duplicate?: boolean
+  potential_dup_of?: PotentialDupOf | null
 }
 
 export interface LedgerSummary {
@@ -121,6 +130,8 @@ export interface LedgerRow {
   has_user_override: boolean
   is_transfer?: boolean
   is_duplicate?: boolean
+  is_potential_duplicate?: boolean
+  potential_dup_of?: PotentialDupOf | null
 }
 
 export interface LedgerResponse {
@@ -196,6 +207,38 @@ export const authApi = {
     api.get<User>('/auth/me').then((r) => r.data),
 }
 
+// ─── Health ──────────────────────────────────────────────────────────────────
+
+export interface HealthWarning {
+  type: 'item_error' | 'sync_failure' | 'consent_expired' | 'consent_expiring'
+      | 'stale_institution' | 'stuck_pending' | 'volume_drop' | 'missing_recurring'
+  severity: 'warning' | 'error'
+  message: string
+  // connection / item fields
+  institution?: string
+  error_code?: string
+  days_until_exp?: number
+  // stale_institution fields
+  last_seen?: string
+  days_ago?: number
+  // stuck_pending fields
+  count?: number
+  oldest_days?: number
+  // volume_drop fields
+  rate_30d?: number
+  rate_7d?: number
+  // missing_recurring fields
+  merchant?: string
+  cadence?: string
+  last_seen_date?: string
+  days_since_last?: number
+}
+
+export interface HealthResult {
+  status: 'ok' | 'warning' | 'error'
+  warnings: HealthWarning[]
+}
+
 // ─── Insights ────────────────────────────────────────────────────────────────
 
 export const insightsApi = {
@@ -216,6 +259,9 @@ export const insightsApi = {
 
   accounts: (params?: FilterParams) =>
     api.get<PlaidAccount[]>('/insights/accounts', { params: cleanParams(params) }).then((r) => r.data),
+
+  health: () =>
+    api.get<HealthResult>('/insights/health').then((r) => r.data),
 }
 
 // ─── Transactions ────────────────────────────────────────────────────────────
@@ -232,6 +278,9 @@ export const transactionsApi = {
 
   delete: (id: string) =>
     api.delete<{ ok: boolean }>(`/transactions/${id}`).then((r) => r.data),
+
+  dismissDuplicate: (id: string, otherId: string) =>
+    api.post<{ ok: boolean }>(`/transactions/${id}/dismiss-duplicate`, { other_id: otherId }).then((r) => r.data),
 }
 
 // ─── Ledger ──────────────────────────────────────────────────────────────────

@@ -44,3 +44,5 @@ pull.log
 # Claude / MCP (may contain API tokens)
 .claude/
 .mcp.json
+CLAUDE.md
+claude.md

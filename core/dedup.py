@@ -129,33 +129,55 @@ def find_potential_duplicates(
     name_similarity_threshold: int = 80
 ) -> list[tuple]:
     """
-    Returns list of (index_a, index_b) pairs that are potential
-    cross-institution duplicates. Requires both amount AND name similarity.
+    Returns list of (index_a, index_b) pairs that are potential duplicates.
+
+    Two cases:
+    - Cross-institution: same amount + high name similarity within date window.
+      Catches Venmo/card double-entries.
+    - Same-institution: exact amount + very high name similarity within a 5-day
+      window AND at least one side is pending. Catches the Plaid pending→posted
+      ID swap (old pending ID stays in DB, new posted ID gets inserted).
     """
     pairs = []
     debits = df[df["type"] == "debit"].copy()
 
     seen = set()
     for i, row in debits.iterrows():
+        # ── Cross-institution ────────────────────────────────────────────────
         date_min = row["date"] - timedelta(days=date_window_days)
         date_max = row["date"] + timedelta(days=date_window_days)
 
-        # First filter by amount and date
-        candidates = debits[
+        cross_candidates = debits[
             (debits.index != i) &
             (debits["institution"] != row["institution"]) &
             (debits["date"] >= date_min) &
             (debits["date"] <= date_max) &
             (abs(debits["amount"] - row["amount"]) <= amount_tolerance)
         ]
-
-        # Then filter by name similarity — this kills false positives
-        for j, candidate in candidates.iterrows():
-            similarity = fuzz.token_sort_ratio(
-                row["name"].lower(),
-                candidate["name"].lower()
-            )
+        for j, candidate in cross_candidates.iterrows():
+            similarity = fuzz.token_sort_ratio(row["name"].lower(), candidate["name"].lower())
             if similarity >= name_similarity_threshold:
+                pair = tuple(sorted([i, j]))
+                if pair not in seen:
+                    seen.add(pair)
+                    pairs.append(pair)
+
+        # ── Same-institution pending→posted ──────────────────────────────────
+        # Only flag if at least one side is still pending — otherwise two
+        # legitimate same-bank same-merchant purchases would get flagged.
+        if not row.get("pending", False):
+            continue
+
+        same_candidates = debits[
+            (debits.index != i) &
+            (debits["institution"] == row["institution"]) &
+            (debits["date"] >= row["date"] - timedelta(days=5)) &
+            (debits["date"] <= row["date"] + timedelta(days=5)) &
+            (abs(debits["amount"] - row["amount"]) <= amount_tolerance)
+        ]
+        for j, candidate in same_candidates.iterrows():
+            similarity = fuzz.token_sort_ratio(row["name"].lower(), candidate["name"].lower())
+            if similarity >= 90:  # higher bar for same-institution to avoid false positives
                 pair = tuple(sorted([i, j]))
                 if pair not in seen:
                     seen.add(pair)
@@ -170,20 +192,31 @@ def ai_arbitrate_pair(row_a: pd.Series, row_b: pd.Series) -> tuple[bool, str]:
     """
     Asks Claude whether two transactions across institutions are duplicates.
     """
-    p2p_institutions = [i for i in [row_a["institution"], row_b["institution"]] 
+    same_institution = row_a["institution"].lower() == row_b["institution"].lower()
+    p2p_institutions = [i for i in [row_a["institution"], row_b["institution"]]
                         if i.lower() in P2P_INSTITUTIONS]
-    card_institutions = [i for i in [row_a["institution"], row_b["institution"]] 
+    card_institutions = [i for i in [row_a["institution"], row_b["institution"]]
                          if i.lower() not in P2P_INSTITUTIONS]
 
     context = ""
-    if p2p_institutions and card_institutions:
+    if same_institution:
+        pending_a = row_a.get("pending", False)
+        pending_b = row_b.get("pending", False)
+        context = f"""
+IMPORTANT CONTEXT: Both transactions are from the same institution ({row_a['institution']}).
+One is pending={pending_a}, the other is pending={pending_b}.
+Banks often show a pending transaction and then replace it with a settled transaction
+that gets a new ID — the old pending entry can linger as a duplicate row in the database.
+If amounts match exactly, names are very similar, and dates are within a few days,
+this is almost certainly a pending→posted duplicate."""
+    elif p2p_institutions and card_institutions:
         context = f"""
 IMPORTANT CONTEXT: {p2p_institutions[0]} is a P2P payment platform in this user's setup.
 When {p2p_institutions[0]} is funded by {card_institutions[0]}, the same transaction
 appears on BOTH accounts. If the merchant, amount, and date match closely across
 a P2P platform and a bank/credit card, treat it as a duplicate — keep the card transaction."""
 
-    prompt = f"""You are analyzing bank transactions to detect duplicates across financial institutions.
+    prompt = f"""You are analyzing bank transactions to detect duplicates.
 {context}
 
 Transaction A:
@@ -191,17 +224,20 @@ Transaction A:
 - Amount: ${row_a['amount']}
 - Date: {row_a['date']}
 - Institution: {row_a['institution']}
+- Pending: {row_a.get('pending', False)}
 
 Transaction B:
 - Name: {row_b['name']}
 - Amount: ${row_b['amount']}
 - Date: {row_b['date']}
 - Institution: {row_b['institution']}
+- Pending: {row_b.get('pending', False)}
 
-Are these the same transaction appearing on two different accounts (duplicate)?
+Are these the same transaction appearing twice (duplicate)?
 
 Rules:
-- If one institution is a P2P platform and the other is a card, and merchant/amount/date match — it IS a duplicate
+- Same institution + one pending + matching amount/name/date = almost certainly duplicate
+- Cross-institution P2P + card with matching merchant/amount/date = duplicate
 - Peer payments between people are NOT duplicates even if amounts match
 - Be decisive — if evidence strongly suggests duplicate, mark it as one
 
@@ -300,6 +336,94 @@ def get_clean_spending(df: pd.DataFrame) -> pd.DataFrame:
         (~df["is_transfer"]) &
         (~df["is_duplicate"])
     ].copy()
+
+
+def flag_potential_duplicates(df: pd.DataFrame, dismissed_pairs: set) -> pd.DataFrame:
+    """
+    Scan for same-account, same-amount, close-date, similar-name transaction pairs
+    that aren't already flagged as transfers or confirmed duplicates, and that the
+    user hasn't already dismissed.
+
+    Adds two columns:
+      - is_potential_duplicate (bool)
+      - potential_dup_of (str | None) — JSON: {id, name, date, amount}
+
+    Only debits are checked. The later transaction in the pair is flagged (it's more
+    likely to be the newer/duplicate ID). If dates are equal, the one with the
+    higher numeric ID is flagged.
+    """
+    import json
+    from collections import defaultdict
+
+    df = df.copy()
+    df["is_potential_duplicate"] = False
+    df["potential_dup_of"] = None
+
+    # Only scan clean debits — transfers and confirmed duplicates are already handled
+    mask = (df["type"] == "debit") & (~df["is_transfer"]) & (~df["is_duplicate"])
+    candidates = df[mask]
+
+    # Bucket by (plaid_account_id, rounded_amount) for O(n) grouping
+    buckets = defaultdict(list)
+    for idx, row in candidates.iterrows():
+        acct = row.get("plaid_account_id", "")
+        if not acct:
+            continue
+        key = (acct, round(float(row["amount"]), 2))
+        buckets[key].append(idx)
+
+    flagged = set()
+
+    for indices in buckets.values():
+        if len(indices) < 2:
+            continue
+
+        for i in range(len(indices)):
+            for j in range(i + 1, len(indices)):
+                idx_a, idx_b = indices[i], indices[j]
+                row_a, row_b = df.loc[idx_a], df.loc[idx_b]
+
+                pair = frozenset([str(row_a["id"]), str(row_b["id"])])
+                if pair in dismissed_pairs:
+                    continue
+
+                days_diff = abs((row_a["date"] - row_b["date"]).days)
+                if days_diff > 5:
+                    continue
+
+                sim = fuzz.token_sort_ratio(
+                    str(row_a["name"]).lower(),
+                    str(row_b["name"]).lower()
+                )
+                if sim < 80:
+                    continue
+
+                # Flag the later transaction (more likely to be the new ID);
+                # tie-break on id so we're deterministic
+                if row_a["date"] < row_b["date"]:
+                    flag_idx, other_idx = idx_b, idx_a
+                elif row_b["date"] < row_a["date"]:
+                    flag_idx, other_idx = idx_a, idx_b
+                else:
+                    flag_idx, other_idx = (idx_b, idx_a) if str(row_a["id"]) < str(row_b["id"]) else (idx_a, idx_b)
+
+                if flag_idx not in flagged:
+                    flagged.add(flag_idx)
+                    other = df.loc[other_idx]
+                    other_date = other["date"]
+                    if hasattr(other_date, "date"):
+                        other_date = other_date.date().isoformat()
+                    else:
+                        other_date = str(other_date)[:10]
+                    df.at[flag_idx, "is_potential_duplicate"] = True
+                    df.at[flag_idx, "potential_dup_of"] = json.dumps({
+                        "id":     str(other["id"]),
+                        "name":   str(other["name"]),
+                        "date":   other_date,
+                        "amount": float(other["amount"]),
+                    })
+
+    return df
 
 
 def get_dedup_summary(df: pd.DataFrame) -> dict:
