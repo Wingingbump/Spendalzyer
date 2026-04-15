@@ -3,9 +3,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Trash2, Plus, Sun, Moon, CreditCard, Shield, Palette, Tag, AlertTriangle, UserCircle, FileText, ChevronDown, ChevronUp } from 'lucide-react'
+import { Trash2, Plus, Sun, Moon, CreditCard, Shield, Palette, Tag, AlertTriangle, UserCircle, FileText, ChevronDown, ChevronUp, Check } from 'lucide-react'
 import { accountsApi, plaidApi, settingsApi, categoriesApi } from '../lib/api'
-import { useTheme } from '../context/ThemeContext'
+import { useTheme, type DarkPalette, type LightPalette } from '../context/ThemeContext'
 import { useAuth } from '../context/AuthContext'
 import Card from '../components/Card'
 import Spinner from '../components/Spinner'
@@ -182,8 +182,99 @@ function SectionHeader({ icon: Icon, title }: { icon: React.ElementType; title: 
   )
 }
 
+const DARK_PALETTES = [
+  { id: 'default',  label: 'Default',  bg: '#111318', surface: '#1a1c20', accent: '#1a56db' },
+  { id: 'midnight', label: 'Midnight', bg: '#090c14', surface: '#101828', accent: '#4d8be8' },
+  { id: 'forest',   label: 'Forest',   bg: '#0b1410', surface: '#111f18', accent: '#3eb87f' },
+  { id: 'ember',    label: 'Ember',    bg: '#150f0a', surface: '#1f1510', accent: '#e07340' },
+]
+
+const LIGHT_PALETTES = [
+  { id: 'default',  label: 'Default',  bg: '#f0f2f8', surface: '#e8eaf4', accent: '#1a56db' },
+  { id: 'warm',     label: 'Warm',     bg: '#f6f0e8', surface: '#ede5d8', accent: '#c25d1e' },
+  { id: 'sage',     label: 'Sage',     bg: '#edf3ed', surface: '#e3ece3', accent: '#2d7a4f' },
+  { id: 'lavender', label: 'Lavender', bg: '#f0eef8', surface: '#e8e4f4', accent: '#6b4fd8' },
+]
+
+function PaletteSwatch({
+  label, bg, surface, accent, selected, onClick,
+}: {
+  label: string
+  bg: string
+  surface: string
+  accent: string
+  selected: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={label}
+      style={{
+        background: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        padding: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 6,
+      }}
+    >
+      <div
+        style={{
+          width: 64,
+          height: 48,
+          borderRadius: 10,
+          background: bg,
+          border: selected ? `2px solid ${accent}` : '2px solid transparent',
+          outline: selected ? `2px solid ${accent}` : '2px solid transparent',
+          outlineOffset: 1,
+          position: 'relative',
+          overflow: 'hidden',
+          boxShadow: selected ? `0 0 0 1px ${accent}40` : '0 0 0 1px rgba(128,128,128,0.2)',
+          transition: 'box-shadow 0.15s, outline 0.15s',
+        }}
+      >
+        {/* Surface strip */}
+        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 20, background: surface }} />
+        {/* Accent dot */}
+        <div style={{
+          position: 'absolute',
+          bottom: 5,
+          right: 7,
+          width: 10,
+          height: 10,
+          borderRadius: '50%',
+          background: accent,
+        }} />
+        {/* Check mark */}
+        {selected && (
+          <div style={{
+            position: 'absolute',
+            top: 5,
+            right: 5,
+            width: 16,
+            height: 16,
+            borderRadius: '50%',
+            background: accent,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+            <Check size={10} color="#fff" strokeWidth={3} />
+          </div>
+        )}
+      </div>
+      <span style={{ fontSize: 11, color: selected ? 'var(--color-text-primary)' : 'var(--color-text-muted)', fontWeight: selected ? 600 : 400 }}>
+        {label}
+      </span>
+    </button>
+  )
+}
+
 export default function Settings() {
-  const { theme, setTheme } = useTheme()
+  const { theme, setTheme, darkPalette, lightPalette, setDarkPalette, setLightPalette } = useTheme()
   const { user, logout } = useAuth()
   const qc = useQueryClient()
   const plaidScriptLoaded = useRef(false)
@@ -612,13 +703,15 @@ export default function Settings() {
       <Card>
         <SectionHeader icon={Palette} title="Appearance" />
 
-        <div className="flex items-center gap-3">
+        {/* Mode toggle */}
+        <p className="mb-2" style={{ fontSize: 12, color: 'var(--color-text-muted)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Mode</p>
+        <div className="flex items-center gap-3 mb-6">
           <button
             onClick={() => setTheme('dark')}
             className="flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium transition-all"
             style={{
               background: theme === 'dark' ? 'var(--color-accent)' : 'var(--color-surface-raise)',
-              color: theme === 'dark' ? '#000' : 'var(--color-text-secondary)',
+              color: theme === 'dark' ? '#fff' : 'var(--color-text-secondary)',
               border: theme === 'dark' ? '1px solid transparent' : '1px solid var(--color-border)',
               fontSize: 13,
             }}
@@ -630,7 +723,7 @@ export default function Settings() {
             className="flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium transition-all"
             style={{
               background: theme === 'light' ? 'var(--color-accent)' : 'var(--color-surface-raise)',
-              color: theme === 'light' ? '#000' : 'var(--color-text-secondary)',
+              color: theme === 'light' ? '#fff' : 'var(--color-text-secondary)',
               border: theme === 'light' ? '1px solid transparent' : '1px solid var(--color-border)',
               fontSize: 13,
             }}
@@ -638,6 +731,38 @@ export default function Settings() {
             <Sun size={14} /> Light
           </button>
         </div>
+
+        {/* Color palette */}
+        <p className="mb-3" style={{ fontSize: 12, color: 'var(--color-text-muted)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Color palette</p>
+        {theme === 'dark' ? (
+          <div className="flex flex-wrap gap-3">
+            {DARK_PALETTES.map((p) => (
+              <PaletteSwatch
+                key={p.id}
+                label={p.label}
+                bg={p.bg}
+                surface={p.surface}
+                accent={p.accent}
+                selected={darkPalette === p.id}
+                onClick={() => setDarkPalette(p.id as DarkPalette)}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-3">
+            {LIGHT_PALETTES.map((p) => (
+              <PaletteSwatch
+                key={p.id}
+                label={p.label}
+                bg={p.bg}
+                surface={p.surface}
+                accent={p.accent}
+                selected={lightPalette === p.id}
+                onClick={() => setLightPalette(p.id as LightPalette)}
+              />
+            ))}
+          </div>
+        )}
       </Card>
 
       {/* ── Section 4: My Categories ─────────────────────────────────────────── */}

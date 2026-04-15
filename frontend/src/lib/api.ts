@@ -49,6 +49,7 @@ export interface User {
 
 export interface InsightsSummary {
   total_spent: number
+  total_credits: number
   transaction_count: number
   net_spend: number
   this_month: number
@@ -262,6 +263,36 @@ export const insightsApi = {
 
   health: () =>
     api.get<HealthResult>('/insights/health').then((r) => r.data),
+}
+
+// ─── Nudges ──────────────────────────────────────────────────────────────────
+
+export interface Nudge {
+  id: number
+  type: 'category_spike' | 'monthly_pace' | 'new_recurring' | 'price_change' | 'large_transaction'
+  severity: 'info' | 'warning' | 'alert'
+  title: string
+  body: string
+  data: Record<string, unknown>
+  created_at: string
+  read: boolean
+}
+
+export const nudgesApi = {
+  analyze: () =>
+    api.post<{ nudges_generated: number }>('/insights/analyze').then((r) => r.data),
+
+  list: () =>
+    api.get<Nudge[]>('/insights/nudges').then((r) => r.data),
+
+  unreadCount: () =>
+    api.get<{ count: number }>('/insights/nudges/unread-count').then((r) => r.data),
+
+  markRead: () =>
+    api.post('/insights/nudges/read').then((r) => r.data),
+
+  dismiss: (id: number) =>
+    api.post(`/insights/nudges/${id}/dismiss`).then((r) => r.data),
 }
 
 // ─── Transactions ────────────────────────────────────────────────────────────

@@ -2,10 +2,11 @@ import json
 from typing import Optional
 
 import pandas as pd
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Path
 
 from backend.dependencies import apply_filters, get_current_user
 from core import insights as ins
+from core.db import get_active_nudges, dismiss_nudge, mark_nudges_read, get_unread_nudge_count
 
 router = APIRouter(prefix="/insights", tags=["insights"])
 
@@ -55,6 +56,7 @@ def summary(
 
     return {
         "total_spent": _safe(ins.total_spent(df)),
+        "total_credits": _safe(ins.total_credits(df)),
         "transaction_count": _safe(ins.transaction_count(df)),
         "net_spend": _safe(ins.net_spend(df)),
         "this_month": _safe(mom.get("this_month")),
@@ -322,6 +324,57 @@ def health(current_user: dict = Depends(get_current_user)):
 
     status = "ok" if not warnings else ("error" if any(w["severity"] == "error" for w in warnings) else "warning")
     return {"status": status, "warnings": warnings}
+
+
+@router.post("/analyze")
+def analyze(current_user: dict = Depends(get_current_user)):
+    """
+    Run the analysis pipeline against existing transaction data in the DB.
+    No Plaid call — just reruns detectors on what's already stored.
+    Called automatically when the user opens the Overview page.
+    """
+    from core.analysis import run_analysis
+    count = run_analysis(current_user["id"])
+    return {"nudges_generated": count}
+
+
+@router.get("/nudges")
+def nudges(current_user: dict = Depends(get_current_user)):
+    """Return all active (non-dismissed) nudges for the current user."""
+    rows = get_active_nudges(current_user["id"])
+    return [
+        {
+            "id": r["id"],
+            "type": r["type"],
+            "severity": r["severity"],
+            "title": r["title"],
+            "body": r["body"],
+            "data": r["data"],
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            "read": r["read_at"] is not None,
+        }
+        for r in rows
+    ]
+
+
+@router.get("/nudges/unread-count")
+def nudges_unread_count(current_user: dict = Depends(get_current_user)):
+    return {"count": get_unread_nudge_count(current_user["id"])}
+
+
+@router.post("/nudges/read")
+def nudges_mark_read(current_user: dict = Depends(get_current_user)):
+    mark_nudges_read(current_user["id"])
+    return {"ok": True}
+
+
+@router.post("/nudges/{nudge_id}/dismiss")
+def nudge_dismiss(
+    nudge_id: int = Path(..., gt=0),
+    current_user: dict = Depends(get_current_user),
+):
+    dismiss_nudge(nudge_id, current_user["id"])
+    return {"ok": True}
 
 
 @router.get("/accounts")

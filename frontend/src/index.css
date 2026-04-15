@@ -31,6 +31,81 @@
   --color-accent-text: #1a56db;
 }
 
+/* ── Dark palettes ──────────────────────────────────────────────────────── */
+
+.dark.palette-midnight {
+  --color-bg: #090c14;
+  --color-surface: #101828;
+  --color-surface-raise: #192236;
+  --color-border: #283550;
+  --color-text-secondary: #9aaad0;
+  --color-text-muted: #6070a0;
+  --color-accent: #4d8be8;
+  --color-accent-text: #a8c4f5;
+}
+
+.dark.palette-forest {
+  --color-bg: #0b1410;
+  --color-surface: #111f18;
+  --color-surface-raise: #192c22;
+  --color-border: #274035;
+  --color-text-secondary: #9abfaa;
+  --color-text-muted: #6a9480;
+  --color-accent: #3eb87f;
+  --color-accent-text: #a3dcc0;
+  --color-positive: #4dcf8a;
+}
+
+.dark.palette-ember {
+  --color-bg: #150f0a;
+  --color-surface: #1f1510;
+  --color-surface-raise: #2d1e15;
+  --color-border: #4a3020;
+  --color-text-secondary: #c8a898;
+  --color-text-muted: #9a7060;
+  --color-accent: #e07340;
+  --color-accent-text: #f5b89a;
+}
+
+/* ── Light palettes ─────────────────────────────────────────────────────── */
+
+.light.palette-warm {
+  --color-bg: #f6f0e8;
+  --color-surface: #ede5d8;
+  --color-surface-raise: #e3d8c8;
+  --color-border: #c8b89e;
+  --color-text-primary: #221a10;
+  --color-text-secondary: #6a5040;
+  --color-text-muted: #9a8070;
+  --color-accent: #c25d1e;
+  --color-accent-text: #c25d1e;
+}
+
+.light.palette-sage {
+  --color-bg: #edf3ed;
+  --color-surface: #e3ece3;
+  --color-surface-raise: #d7e5d7;
+  --color-border: #b2ccb2;
+  --color-text-primary: #0e1f0e;
+  --color-text-secondary: #3a5e3a;
+  --color-text-muted: #6a8e6a;
+  --color-accent: #2d7a4f;
+  --color-accent-text: #2d7a4f;
+  --color-positive: #2a8a50;
+}
+
+.light.palette-lavender {
+  --color-bg: #f0eef8;
+  --color-surface: #e8e4f4;
+  --color-surface-raise: #ddd8ee;
+  --color-border: #bfb5e0;
+  --color-text-primary: #160e2a;
+  --color-text-secondary: #4e3e7a;
+  --color-text-muted: #7e70a8;
+  --color-accent: #6b4fd8;
+  --color-accent-text: #6b4fd8;
+}
+
 * {
   box-sizing: border-box;
 }

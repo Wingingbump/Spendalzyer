@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine, Cell,
 } from 'recharts'
 import { ShoppingBag, Store, Calendar, CreditCard, X, BarChart2, ArrowLeftRight, Bot, ChevronRight, ChevronLeft, AlertTriangle, RefreshCw, CheckCircle } from 'lucide-react'
 import { accountsApi, insightsApi, syncApi } from '../lib/api'
@@ -283,7 +283,7 @@ export default function Overview() {
     queryFn: () => accountsApi.list(),
   })
 
-  const bannerKey = `onboarding_dismissed_${user?.id}`
+const bannerKey = `onboarding_dismissed_${user?.id}`
   const [showBanner, setShowBanner] = useState(false)
 
   useEffect(() => {
@@ -321,6 +321,29 @@ export default function Overview() {
   const deltaPct = summary?.delta_pct ?? 0
   const isPositiveDelta = delta <= 0
 
+  // ── Derived pace metrics ───────────────────────────────────────────────────
+  const today = new Date()
+  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate()
+  const daysElapsed = today.getDate()
+  const daysRemaining = daysInMonth - daysElapsed
+  const dailyRate = summary && daysElapsed > 0 ? summary.this_month / daysElapsed : 0
+  const projected = Math.round(dailyRate * daysInMonth)
+  const isPaceOver = summary?.last_month ? projected > summary.last_month : false
+  const paceVsLast = summary?.last_month && summary.last_month > 0
+    ? ((projected - summary.last_month) / summary.last_month * 100).toFixed(0)
+    : null
+
+  // ── Monthly chart helpers ──────────────────────────────────────────────────
+  const monthlyAvg = monthly.length > 1
+    ? monthly.reduce((s, m) => s + m.total, 0) / monthly.length
+    : 0
+  const currentMonthKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
+
+  // ── Savings proxy (this month credits vs debits) ───────────────────────────
+  const savingsPct = summary?.total_credits && summary.total_credits > 0
+    ? Math.round((1 - summary.this_month / summary.total_credits) * 100)
+    : null
+
   return (
     <div className="space-y-5 fade-in">
       {showBanner && <OnboardingTour onDismiss={dismissBanner} />}
@@ -336,11 +359,6 @@ export default function Overview() {
       {/* Metric Cards */}
       <div className="grid grid-cols-3 gap-4">
         <MetricCard
-          label="Total Spent"
-          value={formatCurrency(summary?.total_spent ?? 0)}
-          isLoading={loadingSummary}
-        />
-        <MetricCard
           label="This Month"
           value={formatCurrency(summary?.this_month ?? 0)}
           sub={
@@ -353,9 +371,21 @@ export default function Overview() {
           hero
         />
         <MetricCard
-          label="Transactions"
-          value={String(summary?.transaction_count ?? 0)}
-          sub={summary ? `Net: ${formatCurrency(summary.net_spend)}` : undefined}
+          label={`On Pace For · ${daysRemaining}d left`}
+          value={loadingSummary ? '—' : formatCurrency(projected)}
+          sub={
+            !loadingSummary && paceVsLast !== null
+              ? `${isPaceOver ? '↑' : '↓'} ${Math.abs(Number(paceVsLast))}% vs last month`
+              : undefined
+          }
+          subPositive={!isPaceOver}
+          isLoading={loadingSummary}
+        />
+        <MetricCard
+          label="Est. Savings Rate"
+          value={loadingSummary ? '—' : savingsPct !== null ? `${savingsPct}%` : '—'}
+          sub={summary ? `Net ${formatCurrency(summary.net_spend)}` : undefined}
+          subPositive={savingsPct !== null && savingsPct > 0}
           isLoading={loadingSummary}
         />
       </div>
@@ -390,7 +420,24 @@ export default function Overview() {
                 width={45}
               />
               <Tooltip content={<MonthlyTooltip />} cursor={{ fill: 'var(--color-surface-raise)' }} />
-              <Bar dataKey="total" fill={chartColors[0]} radius={[3, 3, 0, 0]} />
+              {monthlyAvg > 0 && (
+                <ReferenceLine
+                  y={monthlyAvg}
+                  stroke="var(--color-text-muted)"
+                  strokeDasharray="4 3"
+                  strokeWidth={1}
+                  label={{ value: 'avg', position: 'insideTopRight', fontSize: 10, fill: 'var(--color-text-muted)', dy: -4 }}
+                />
+              )}
+              <Bar dataKey="total" radius={[3, 3, 0, 0]}>
+                {monthly.map((m) => (
+                  <Cell
+                    key={m.month}
+                    fill={m.month === currentMonthKey ? 'var(--color-accent)' : chartColors[0]}
+                    opacity={m.month === currentMonthKey ? 1 : 0.7}
+                  />
+                ))}
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         )}
@@ -438,7 +485,7 @@ export default function Overview() {
         {/* Day of Week */}
         <Card>
           <p className="mb-4" style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-secondary)' }}>
-            Day of Week
+            Typical Day of Week
           </p>
           {loadingDow ? (
             <div className="flex items-center justify-center" style={{ height: 200 }}>
@@ -472,104 +519,59 @@ export default function Overview() {
         </Card>
       </div>
 
-      {/* Highlight Cards */}
-      <div className="grid grid-cols-3 gap-4">
-        {/* Biggest Purchase */}
-        <Card>
-          <div className="flex items-start gap-3">
-            <div
-              className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-              style={{ background: 'rgba(200, 255, 0, 0.12)' }}
-            >
-              <ShoppingBag size={15} style={{ color: 'var(--color-accent)' }} />
+      {/* Highlight strip — 3 stats in one compact card */}
+      <Card>
+        <div className="grid grid-cols-3">
+          {/* Biggest Purchase */}
+          <div className="flex items-start gap-2.5 pr-4">
+            <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5" style={{ background: 'rgba(200,255,0,0.10)' }}>
+              <ShoppingBag size={13} style={{ color: 'var(--color-accent)' }} />
             </div>
             <div className="flex-1 min-w-0">
-              <p style={{ fontSize: 11, color: 'var(--color-text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                Biggest Purchase
-              </p>
-              {loadingSummary ? (
-                <div className="skeleton mt-2" style={{ height: 20, width: 100 }} />
-              ) : summary?.biggest_purchase ? (
+              <p style={{ fontSize: 10, color: 'var(--color-text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Biggest Purchase</p>
+              {loadingSummary ? <div className="skeleton mt-1.5" style={{ height: 16, width: 80 }} /> : summary?.biggest_purchase ? (
                 <>
-                  <p style={{ fontSize: 18, fontWeight: 700, fontFamily: 'monospace', color: 'var(--color-text-primary)', marginTop: 4 }}>
-                    {formatCurrency(summary.biggest_purchase.amount)}
-                  </p>
-                  <p className="truncate mt-0.5" style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
-                    {summary.biggest_purchase.name}
-                  </p>
-                  <p style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 2 }}>
-                    {summary.biggest_purchase.date}
-                  </p>
+                  <p style={{ fontSize: 15, fontWeight: 700, fontFamily: 'monospace', color: 'var(--color-text-primary)', marginTop: 3 }}>{formatCurrency(summary.biggest_purchase.amount)}</p>
+                  <p className="truncate" style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginTop: 1 }}>{summary.biggest_purchase.name}</p>
+                  <p style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 1 }}>{summary.biggest_purchase.date}</p>
                 </>
-              ) : (
-                <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginTop: 4 }}>—</p>
-              )}
+              ) : <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 4 }}>—</p>}
             </div>
           </div>
-        </Card>
 
-        {/* Most Visited Merchant */}
-        <Card>
-          <div className="flex items-start gap-3">
-            <div
-              className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-              style={{ background: 'rgba(90, 191, 138, 0.12)' }}
-            >
-              <Store size={15} style={{ color: 'var(--color-positive)' }} />
+          {/* Most Visited */}
+          <div className="flex items-start gap-2.5 px-4" style={{ borderLeft: '1px solid var(--color-border)', borderRight: '1px solid var(--color-border)' }}>
+            <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5" style={{ background: 'rgba(90,191,138,0.10)' }}>
+              <Store size={13} style={{ color: 'var(--color-positive)' }} />
             </div>
             <div className="flex-1 min-w-0">
-              <p style={{ fontSize: 11, color: 'var(--color-text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                Most Visited
-              </p>
-              {loadingSummary ? (
-                <div className="skeleton mt-2" style={{ height: 20, width: 100 }} />
-              ) : summary?.most_visited_merchant ? (
+              <p style={{ fontSize: 10, color: 'var(--color-text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Most Visited</p>
+              {loadingSummary ? <div className="skeleton mt-1.5" style={{ height: 16, width: 80 }} /> : summary?.most_visited_merchant ? (
                 <>
-                  <p className="truncate mt-1" style={{ fontSize: 16, fontWeight: 700, color: 'var(--color-text-primary)' }}>
-                    {summary.most_visited_merchant.merchant}
-                  </p>
-                  <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginTop: 2 }}>
-                    {summary.most_visited_merchant.count} visits · {formatCurrency(summary.most_visited_merchant.total)}
-                  </p>
+                  <p className="truncate" style={{ fontSize: 15, fontWeight: 700, color: 'var(--color-text-primary)', marginTop: 3 }}>{summary.most_visited_merchant.merchant}</p>
+                  <p style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginTop: 1 }}>{summary.most_visited_merchant.count} visits · {formatCurrency(summary.most_visited_merchant.total)}</p>
                 </>
-              ) : (
-                <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginTop: 4 }}>—</p>
-              )}
+              ) : <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 4 }}>—</p>}
             </div>
           </div>
-        </Card>
 
-        {/* Biggest Spending Day */}
-        <Card>
-          <div className="flex items-start gap-3">
-            <div
-              className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-              style={{ background: 'rgba(232, 96, 96, 0.12)' }}
-            >
-              <Calendar size={15} style={{ color: 'var(--color-negative)' }} />
+          {/* Biggest Day */}
+          <div className="flex items-start gap-2.5 pl-4">
+            <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5" style={{ background: 'rgba(232,96,96,0.10)' }}>
+              <Calendar size={13} style={{ color: 'var(--color-negative)' }} />
             </div>
             <div className="flex-1 min-w-0">
-              <p style={{ fontSize: 11, color: 'var(--color-text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                Biggest Day
-              </p>
-              {loadingSummary ? (
-                <div className="skeleton mt-2" style={{ height: 20, width: 100 }} />
-              ) : summary?.biggest_spending_day ? (
+              <p style={{ fontSize: 10, color: 'var(--color-text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Biggest Day</p>
+              {loadingSummary ? <div className="skeleton mt-1.5" style={{ height: 16, width: 80 }} /> : summary?.biggest_spending_day ? (
                 <>
-                  <p style={{ fontSize: 18, fontWeight: 700, fontFamily: 'monospace', color: 'var(--color-text-primary)', marginTop: 4 }}>
-                    {formatCurrency(summary.biggest_spending_day.total)}
-                  </p>
-                  <p style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 2 }}>
-                    {summary.biggest_spending_day.date}
-                  </p>
+                  <p style={{ fontSize: 15, fontWeight: 700, fontFamily: 'monospace', color: 'var(--color-text-primary)', marginTop: 3 }}>{formatCurrency(summary.biggest_spending_day.total)}</p>
+                  <p style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 1 }}>{summary.biggest_spending_day.date}</p>
                 </>
-              ) : (
-                <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginTop: 4 }}>—</p>
-              )}
+              ) : <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 4 }}>—</p>}
             </div>
           </div>
-        </Card>
-      </div>
+        </div>
+      </Card>
     </div>
   )
 }

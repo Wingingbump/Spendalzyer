@@ -94,11 +94,11 @@ def delete_budget(category: str, current_user: dict = Depends(get_current_user))
 # ── Recurring detection ───────────────────────────────────────────────────────
 
 FREQ_RANGES = [
-    ("weekly",     5,   9),
+    ("weekly",     6,   8),
     ("biweekly",  12,  16),
     ("monthly",   25,  35),
-    ("quarterly", 85, 100),
-    ("annual",   330, 390),
+    ("quarterly", 85,  95),
+    ("annual",   350, 380),
 ]
 
 
@@ -126,29 +126,36 @@ def _detect_recurring(df: pd.DataFrame) -> list:
         group = group.sort_values("date")
         amounts = group["amount"].tolist()
 
-        # Amount must be consistent (all within 15% of median)
+        # Amount must be consistent: max - min <= $1.00 (absolute tolerance).
+        # Percentage-based tolerance breaks on cheap subscriptions — a $2.99 iCloud
+        # charge with $0.30 rounding has 10% deviation but is clearly a fixed fee.
+        # $1.00 absolute handles tax rounding at any price without letting variable
+        # merchants (grocery, restaurant) through since their spreads are $10–$80.
         sorted_amt = sorted(amounts)
         median_amt = sorted_amt[len(sorted_amt) // 2]
         if median_amt <= 0:
             continue
-        if any(abs(a - median_amt) / median_amt > 0.15 for a in amounts):
+        if max(amounts) - min(amounts) > 1.00:
             continue
 
-        # Date interval analysis
+        # Date interval analysis — use median interval, not average.
+        # Median is robust against one-off gaps (e.g. a skipped month that would
+        # inflate the average and push a monthly charge out of the 25–35 day window).
         dates = group["date"].tolist()
         diffs = [(dates[i + 1] - dates[i]).days for i in range(len(dates) - 1)]
-        avg_diff = sum(diffs) / len(diffs)
+        sorted_diffs = sorted(diffs)
+        median_diff = sorted_diffs[len(sorted_diffs) // 2]
 
         freq = None
         for label, lo, hi in FREQ_RANGES:
-            if lo <= avg_diff <= hi:
+            if lo <= median_diff <= hi:
                 freq = label
                 break
         if freq is None:
             continue
 
-        # Intervals must be consistent (within 40% of avg)
-        if len(diffs) > 1 and any(abs(d - avg_diff) / avg_diff > 0.4 for d in diffs):
+        # Intervals must be consistent (within 40% of median)
+        if len(diffs) > 1 and any(abs(d - median_diff) / median_diff > 0.4 for d in diffs):
             continue
 
         results.append({

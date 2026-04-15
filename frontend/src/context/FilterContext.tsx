@@ -20,7 +20,7 @@ interface FilterContextValue {
 }
 
 const FilterContext = createContext<FilterContextValue>({
-  range: '30d',
+  range: 'ytd',
   institution: 'all',
   account: 'all',
   setRange: () => {},
@@ -29,7 +29,7 @@ const FilterContext = createContext<FilterContextValue>({
 })
 
 export function FilterProvider({ children }: { children: React.ReactNode }) {
-  const [range, setRange] = useState('30d')
+  const [range, setRange] = useState('ytd')
   const [institution, setInstitution] = useState('all')
   const [account, setAccount] = useState('all')
 

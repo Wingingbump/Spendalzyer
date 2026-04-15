@@ -23,6 +23,14 @@ def sync(
             synced_count = result.get("count", result.get("synced_count", 0)) or 0
         elif isinstance(result, int):
             synced_count = result
+
+        # Run proactive analysis pipeline after every successful sync
+        try:
+            from core.analysis import run_analysis
+            run_analysis(current_user["id"])
+        except Exception:
+            pass  # analysis failure must never break sync
+
         return {
             "synced_count": synced_count,
             "last_synced_at": str(last_synced_at) if last_synced_at else None,

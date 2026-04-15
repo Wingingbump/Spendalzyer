@@ -227,16 +227,47 @@ def drill_down_merchant(df: pd.DataFrame, merchant: str) -> pd.DataFrame:
 # ── Day of week ────────────────────────────────────────────────────────────────
 
 def spending_by_dow(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Returns the MEDIAN spend per weekday across all weeks in the dataset.
+
+    Aggregate totals skew badly — one expensive Friday inflates the whole bar.
+    Instead: sum all transactions within each (year, week, weekday) pair to get
+    a single 'spend on this weekday in this week', then take the median across
+    all such weeks. This gives a reliable 'typical Monday costs me $X' figure.
+    Weekdays with fewer than 2 observations are zeroed out.
+    """
     spending = get_spending(df).copy()
+    if spending.empty:
+        return pd.DataFrame({
+            "dow": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+            "total": [0.0] * 7,
+            "count": [0] * 7,
+        })
+
     spending["dow"] = spending["date"].dt.day_name()
+    iso = spending["date"].dt.isocalendar()
+    spending["iso_year"] = iso["year"].astype(int)
+    spending["iso_week"] = iso["week"].astype(int)
+
+    # Sum per (year, week, weekday) → one value per weekday-occurrence
+    weekly = (
+        spending.groupby(["iso_year", "iso_week", "dow"])["amount"]
+        .sum()
+        .reset_index()
+    )
+
+    # Median and count across all occurrences of that weekday
     result = (
-        spending.groupby("dow")["amount"]
-        .agg(total="sum", count="count")
+        weekly.groupby("dow")["amount"]
+        .agg(total="median", count="count")
         .reindex(["Monday", "Tuesday", "Wednesday",
                   "Thursday", "Friday", "Saturday", "Sunday"])
         .fillna(0)
         .reset_index()
     )
+
+    # Zero out weekdays with too few observations to be reliable
+    result.loc[result["count"] < 2, "total"] = 0
     result["total"] = result["total"].round(2)
     return result
 
