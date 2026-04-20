@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
+import { useIsMobile } from '../hooks/useIsMobile'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   LayoutDashboard,
@@ -32,6 +33,7 @@ const NAV_ITEMS = [
 ]
 
 export default function Sidebar() {
+  const isMobile = useIsMobile()
   const { user, logout } = useAuth()
   const { range, institution, account, setRange, setInstitution, setAccount } = useFilters()
   const qc = useQueryClient()
@@ -97,6 +99,8 @@ export default function Sidebar() {
       setRange(val)
     }
   }
+
+  if (isMobile) return null
 
   return (
     <aside

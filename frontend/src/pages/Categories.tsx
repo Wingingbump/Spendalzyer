@@ -57,7 +57,7 @@ export default function Categories() {
       </div>
 
       {/* Main two-column layout */}
-      <div className="grid grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         {/* Donut chart */}
         <Card>
           <p className="mb-4" style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-secondary)' }}>

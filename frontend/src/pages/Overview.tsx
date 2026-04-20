@@ -357,7 +357,7 @@ const bannerKey = `onboarding_dismissed_${user?.id}`
       <DataHealthCard />
 
       {/* Metric Cards */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <MetricCard
           label="This Month"
           value={formatCurrency(summary?.this_month ?? 0)}
@@ -444,7 +444,7 @@ const bannerKey = `onboarding_dismissed_${user?.id}`
       </Card>
 
       {/* Category + DOW charts */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Categories */}
         <Card>
           <p className="mb-4" style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-secondary)' }}>
@@ -521,7 +521,7 @@ const bannerKey = `onboarding_dismissed_${user?.id}`
 
       {/* Highlight strip — 3 stats in one compact card */}
       <Card>
-        <div className="grid grid-cols-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3">
           {/* Biggest Purchase */}
           <div className="flex items-start gap-2.5 pr-4">
             <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5" style={{ background: 'rgba(200,255,0,0.10)' }}>
@@ -540,7 +540,7 @@ const bannerKey = `onboarding_dismissed_${user?.id}`
           </div>
 
           {/* Most Visited */}
-          <div className="flex items-start gap-2.5 px-4" style={{ borderLeft: '1px solid var(--color-border)', borderRight: '1px solid var(--color-border)' }}>
+          <div className="flex items-start gap-2.5 px-4 pt-4 sm:pt-0" style={{ borderTop: '1px solid var(--color-border)' }}>
             <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5" style={{ background: 'rgba(90,191,138,0.10)' }}>
               <Store size={13} style={{ color: 'var(--color-positive)' }} />
             </div>
@@ -556,7 +556,7 @@ const bannerKey = `onboarding_dismissed_${user?.id}`
           </div>
 
           {/* Biggest Day */}
-          <div className="flex items-start gap-2.5 pl-4">
+          <div className="flex items-start gap-2.5 pl-4 pt-4 sm:pt-0" style={{ borderTop: '1px solid var(--color-border)' }}>
             <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5" style={{ background: 'rgba(232,96,96,0.10)' }}>
               <Calendar size={13} style={{ color: 'var(--color-negative)' }} />
             </div>

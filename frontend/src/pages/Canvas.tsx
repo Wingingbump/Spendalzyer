@@ -292,7 +292,7 @@ function SankeyWidget({ filters }: { filters: ReturnType<typeof useFilters> }) {
 
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <Sankey data={data} nodePadding={14} nodeWidth={10} margin={{ top: 12, right: 100, bottom: 12, left: 8 }} link={{ stroke: colors[1], strokeOpacity: 0.25 }} node={{ fill: colors[0], stroke: 'none' }}>
+      <Sankey data={data} nodePadding={14} nodeWidth={10} margin={{ top: 12, right: 20, bottom: 12, left: 8 }} link={{ stroke: colors[1], strokeOpacity: 0.25 }} node={{ fill: colors[0], stroke: 'none' }}>
         <Tooltip formatter={(v: number) => [formatCurrency(v), '']} contentStyle={{ background: 'var(--color-surface-raise)', border: '1px solid var(--color-border)', fontSize: 12, borderRadius: 8 }} />
       </Sankey>
     </ResponsiveContainer>
@@ -343,7 +343,7 @@ function WidgetModal({
 
   return (
     <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)', zIndex: 50 }} onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="rounded-xl" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', width: 480, maxHeight: '80vh', overflow: 'auto' }}>
+      <div className="rounded-xl" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', width: 'min(480px, 90vw)', maxHeight: '80vh', overflow: 'auto' }}>
         <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid var(--color-border)' }}>
           <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--color-text-primary)' }}>
             {isEdit ? 'Edit widget' : step === 'type' ? 'Add widget' : `Configure ${TYPE_META[type].label}`}

@@ -525,7 +525,7 @@ export default function Tracker() {
 
       {/* Summary strip */}
       {data && (
-        <div className="grid grid-cols-3 gap-3 mb-5">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
           {[
             {
               label: 'Spent this month',

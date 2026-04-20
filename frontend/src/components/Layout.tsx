@@ -2,10 +2,13 @@ import React, { useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import RightPanel from './RightPanel'
+import BottomNav from './BottomNav'
+import MobileHeader from './MobileHeader'
 import { PANEL_WIDTH } from './RightPanel'
 import { PanelContext } from '../context/PanelContext'
 import { useAuth } from '../context/AuthContext'
 import { useIdleTimeout } from '../hooks/useIdleTimeout'
+import { useIsMobile } from '../hooks/useIsMobile'
 
 const PANEL_HIDDEN_ROUTES = ['/settings', '/login']
 
@@ -17,10 +20,11 @@ export default function Layout({ children }: LayoutProps) {
   const { logout } = useAuth()
   const { showWarning, secondsLeft, stayActive } = useIdleTimeout(logout)
   const location = useLocation()
+  const isMobile = useIsMobile()
   const [panelOpen, setPanelOpen] = useState(() => {
     try { return localStorage.getItem('rhs-panel-open') !== 'false' } catch { return true }
   })
-  const effectivePanelOpen = panelOpen && !PANEL_HIDDEN_ROUTES.includes(location.pathname)
+  const effectivePanelOpen = !isMobile && panelOpen && !PANEL_HIDDEN_ROUTES.includes(location.pathname)
 
   const handleToggle = () => {
     setPanelOpen((o) => {
@@ -46,18 +50,21 @@ export default function Layout({ children }: LayoutProps) {
         <main
           className="flex-1 overflow-auto"
           style={{
-            marginLeft: 220,
+            marginLeft: isMobile ? 0 : 220,
             marginRight: effectivePanelOpen ? PANEL_WIDTH : 0,
             minHeight: '100vh',
             transition: 'margin-right 0.25s ease',
+            paddingBottom: isMobile ? 60 : 0,
           }}
         >
-          <div className="p-6">
+          {isMobile && <MobileHeader />}
+          <div className={isMobile ? 'p-4' : 'p-6'}>
             {children}
           </div>
         </main>
-        <RightPanel isOpen={effectivePanelOpen} onToggle={handleToggle} />
+        {!isMobile && <RightPanel isOpen={effectivePanelOpen} onToggle={handleToggle} />}
       </div>
+      {isMobile && <BottomNav />}
 
       {showWarning && (
         <div

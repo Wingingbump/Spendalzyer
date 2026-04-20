@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { useIsMobile } from '../hooks/useIsMobile'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
@@ -89,6 +90,7 @@ export default function Merchants() {
   const qc = useQueryClient()
   const { range, institution, account } = useFilters()
   const { theme } = useTheme()
+  const isMobile = useIsMobile()
   const chartColors = theme === 'dark' ? CHART_COLORS_DARK : CHART_COLORS_LIGHT
   const [selectedMerchant, setSelectedMerchant] = useState<string>('')
   const [applyDialog, setApplyDialog] = useState<ApplyDialog | null>(null)
@@ -196,7 +198,7 @@ export default function Merchants() {
                 tick={{ fill: 'var(--color-text-secondary)', fontSize: 12 }}
                 axisLine={false}
                 tickLine={false}
-                width={160}
+                width={isMobile ? 100 : 160}
               />
               <Tooltip content={<MerchantTooltip />} cursor={{ fill: 'var(--color-surface-raise)' }} />
               <Bar dataKey="total" radius={[0, 3, 3, 0]}>

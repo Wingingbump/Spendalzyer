@@ -6,6 +6,7 @@ import { useFilters } from '../context/FilterContext'
 import { useWorkspace } from '../context/WorkspaceContext'
 import { usePanel } from '../context/PanelContext'
 import { PANEL_WIDTH } from '../components/RightPanel'
+import { useIsMobile } from '../hooks/useIsMobile'
 import { formatCurrency, formatDate, getCategoryColor } from '../lib/utils'
 import SkeletonRow from '../components/SkeletonRow'
 import { ActiveGroupBanner } from '../components/RightPanel'
@@ -36,6 +37,7 @@ export default function Ledger() {
   const { range, institution, account } = useFilters()
   const { activeGroup } = useWorkspace()
   const { panelOpen } = usePanel()
+  const isMobile = useIsMobile()
   const rhsWidth = panelOpen ? PANEL_WIDTH : 0
   const [search, setSearch] = useState('')
   const [types, setTypes] = useState<string[]>([])
@@ -218,7 +220,7 @@ export default function Ledger() {
           onClick={() => setShowAdd(false)}
         >
           <div
-            style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 12, padding: 24, width: 400, position: 'relative' }}
+            style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 12, padding: 24, width: 'min(400px, 90vw)', position: 'relative' }}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between" style={{ marginBottom: 16 }}>
@@ -741,9 +743,9 @@ export default function Ledger() {
           className="flex items-center gap-8 px-6 flex-wrap"
           style={{
             position: 'fixed',
-            bottom: 0,
-            left: 220,
-            right: rhsWidth,
+            bottom: isMobile ? 60 : 0,
+            left: isMobile ? 0 : 220,
+            right: isMobile ? 0 : rhsWidth,
             height: 56,
             borderTop: '1px solid var(--color-border)',
             background: 'var(--color-surface-raise)',

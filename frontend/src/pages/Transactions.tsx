@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useIsMobile } from '../hooks/useIsMobile'
 import { Search, Check, ChevronUp, ChevronDown, Plus, Trash2, X, Tag, AlertTriangle } from 'lucide-react'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
 import { transactionsApi, categoriesApi, workspaceApi, merchantsApi } from '../lib/api'
@@ -41,6 +42,7 @@ export default function Transactions() {
   const { activeGroup } = useWorkspace()
   const { theme } = useTheme()
   const { panelOpen } = usePanel()
+  const isMobile = useIsMobile()
   const rhsWidth = panelOpen ? PANEL_WIDTH : 0
   const [search, setSearch] = useState('')
   const [editState, setEditState] = useState<EditState>({})
@@ -250,7 +252,7 @@ export default function Transactions() {
           onClick={() => setShowAdd(false)}
         >
           <div
-            style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 12, padding: 24, width: 400, position: 'relative' }}
+            style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 12, padding: 24, width: 'min(400px, 90vw)', position: 'relative' }}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between" style={{ marginBottom: 16 }}>
@@ -335,7 +337,7 @@ export default function Transactions() {
           onClick={() => setConfirmDelete(null)}
         >
           <div
-            style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 12, padding: 24, width: 320 }}
+            style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 12, padding: 24, width: 'min(320px, 90vw)' }}
             onClick={(e) => e.stopPropagation()}
           >
             <h2 style={{ fontSize: 15, fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 8 }}>Delete transaction?</h2>
@@ -356,22 +358,22 @@ export default function Transactions() {
         </div>
       )}
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--color-text-primary)' }}>Transactions</h1>
           <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginTop: 2 }}>
             Click fields to edit
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-1 justify-end" style={{ minWidth: 0 }}>
           <button
             onClick={() => setShowAdd(true)}
-            className="flex items-center gap-1.5"
+            className="flex items-center gap-1.5 flex-shrink-0"
             style={{ padding: '6px 12px', fontSize: 13, background: 'var(--color-accent)', border: 'none', borderRadius: 6, cursor: 'pointer', color: '#fff', fontWeight: 500 }}
           >
             <Plus size={14} /> Add
           </button>
-          <div className="relative">
+          <div className="relative flex-1" style={{ minWidth: 0, maxWidth: 280 }}>
             <Search
               size={14}
               style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }}
@@ -381,7 +383,7 @@ export default function Transactions() {
               placeholder="Search transactions…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              style={{ paddingLeft: 30, width: 240 }}
+              style={{ paddingLeft: 30, width: '100%' }}
             />
           </div>
         </div>
@@ -651,9 +653,9 @@ export default function Transactions() {
       <div
         style={{
           position: 'fixed',
-          bottom: 56,
-          left: 220,
-          right: rhsWidth,
+          bottom: isMobile ? 60 : 56,
+          left: isMobile ? 0 : 220,
+          right: isMobile ? 0 : rhsWidth,
           height: drawerOpen ? '45vh' : 0,
           overflow: 'hidden',
           transition: 'height 0.25s ease',
@@ -809,12 +811,12 @@ export default function Transactions() {
 
       {/* Bottom bar */}
       <div
-        className="flex items-center gap-8 px-6"
+        className="flex items-center gap-4 px-4 flex-wrap"
         style={{
           position: 'fixed',
-          bottom: 0,
-          left: 220,
-          right: rhsWidth,
+          bottom: isMobile ? 60 : 0,
+          left: isMobile ? 0 : 220,
+          right: isMobile ? 0 : rhsWidth,
           height: 56,
           borderTop: '1px solid var(--color-border)',
           background: 'var(--color-surface-raise)',
