@@ -12,4 +12,19 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          'vendor-query': ['@tanstack/react-query'],
+          'vendor-charts': ['recharts'],
+          'vendor-grid': ['react-grid-layout'],
+          'vendor-markdown': ['react-markdown', 'remark-gfm'],
+          'vendor-forms': ['react-hook-form', '@hookform/resolvers', 'zod'],
+          'vendor-utils': ['axios', 'date-fns', 'clsx', 'tailwind-merge'],
+        },
+      },
+    },
+  },
 })

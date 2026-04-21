@@ -277,13 +277,15 @@ export default function Overview() {
   const { user } = useAuth()
   const chartColors = theme === 'dark' ? CHART_COLORS_DARK : CHART_COLORS_LIGHT
   const params = { range, institution, account }
+  const INSIGHTS_STALE = 3 * 60_000
 
   const { data: accounts = [], isLoading: loadingAccounts } = useQuery({
     queryKey: ['accounts'],
     queryFn: () => accountsApi.list(),
+    staleTime: INSIGHTS_STALE,
   })
 
-const bannerKey = `onboarding_dismissed_${user?.id}`
+  const bannerKey = `onboarding_dismissed_${user?.id}`
   const [showBanner, setShowBanner] = useState(false)
 
   useEffect(() => {
@@ -300,21 +302,25 @@ const bannerKey = `onboarding_dismissed_${user?.id}`
   const { data: summary, isLoading: loadingSummary } = useQuery({
     queryKey: ['summary', range, institution, account],
     queryFn: () => insightsApi.summary(params),
+    staleTime: INSIGHTS_STALE,
   })
 
   const { data: monthly = [], isLoading: loadingMonthly } = useQuery({
     queryKey: ['monthly', range, institution, account],
     queryFn: () => insightsApi.monthly(params),
+    staleTime: INSIGHTS_STALE,
   })
 
   const { data: categories = [], isLoading: loadingCategories } = useQuery({
     queryKey: ['categories', range, institution, account],
     queryFn: () => insightsApi.categories(params),
+    staleTime: INSIGHTS_STALE,
   })
 
   const { data: dow = [], isLoading: loadingDow } = useQuery({
     queryKey: ['dow', range, institution, account],
     queryFn: () => insightsApi.dow(params),
+    staleTime: INSIGHTS_STALE,
   })
 
   const delta = summary?.delta ?? 0

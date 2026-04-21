@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from backend.dependencies import get_current_user
 from backend.limiter import limiter
 from core.db import get_last_synced_at
+from core import insights as ins
 
 router = APIRouter(prefix="/sync", tags=["sync"])
 
@@ -31,6 +32,7 @@ def sync(
         except Exception:
             pass  # analysis failure must never break sync
 
+        ins.invalidate_user_cache(current_user["id"])
         return {
             "synced_count": synced_count,
             "last_synced_at": str(last_synced_at) if last_synced_at else None,

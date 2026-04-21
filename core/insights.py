@@ -1,15 +1,33 @@
+import threading
 import pandas as pd
 from datetime import date
 from dateutil.relativedelta import relativedelta
 import numpy as np
+from cachetools import TTLCache
 from core.categorize import apply_categories
 from core.dedup import apply_dedup, get_clean_spending, flag_potential_duplicates
 from core.db import fetch_transactions, get_merchant_overrides, get_merchant_category_overrides, get_dismissed_duplicate_pairs
 
 
+# ── Per-user DataFrame cache ───────────────────────────────────────────────────
+# TTL is a safety net; mutations explicitly call invalidate_user_cache().
+_df_cache: TTLCache = TTLCache(maxsize=256, ttl=300)
+_df_cache_lock = threading.Lock()
+
+
+def invalidate_user_cache(user_id: int) -> None:
+    with _df_cache_lock:
+        _df_cache.pop(user_id, None)
+
+
 # ── Data loading ───────────────────────────────────────────────────────────────
 
 def load_data(user_id: int) -> pd.DataFrame:
+    with _df_cache_lock:
+        cached = _df_cache.get(user_id)
+    if cached is not None:
+        return cached
+
     rows = fetch_transactions(user_id)
     if not rows:
         df = pd.DataFrame({
@@ -70,6 +88,8 @@ def load_data(user_id: int) -> pd.DataFrame:
             lambda v: overrides.get(v, v)
         )
 
+    with _df_cache_lock:
+        _df_cache[user_id] = df
     return df
 
 # ── Filtering ──────────────────────────────────────────────────────────────────

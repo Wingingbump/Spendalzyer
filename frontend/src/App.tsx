@@ -1,19 +1,21 @@
-import React from 'react'
+import React, { lazy, Suspense } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import Layout from './components/Layout'
-import Login from './pages/Login'
-import VerifyEmail from './pages/VerifyEmail'
-import ResetPassword from './pages/ResetPassword'
-import Overview from './pages/Overview'
-import Transactions from './pages/Transactions'
-import Ledger from './pages/Ledger'
-import Merchants from './pages/Merchants'
-import Categories from './pages/Categories'
-import Settings from './pages/Settings'
-import Canvas from './pages/Canvas'
-import Advisor from './pages/Advisor'
-import Tracker from './pages/Tracker'
+import Spinner from './components/Spinner'
+
+const Login = lazy(() => import('./pages/Login'))
+const VerifyEmail = lazy(() => import('./pages/VerifyEmail'))
+const ResetPassword = lazy(() => import('./pages/ResetPassword'))
+const Overview = lazy(() => import('./pages/Overview'))
+const Transactions = lazy(() => import('./pages/Transactions'))
+const Ledger = lazy(() => import('./pages/Ledger'))
+const Merchants = lazy(() => import('./pages/Merchants'))
+const Categories = lazy(() => import('./pages/Categories'))
+const Settings = lazy(() => import('./pages/Settings'))
+const Canvas = lazy(() => import('./pages/Canvas'))
+const Advisor = lazy(() => import('./pages/Advisor'))
+const Tracker = lazy(() => import('./pages/Tracker'))
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth()
@@ -45,86 +47,94 @@ function RootRedirect() {
   return <Navigate to={user ? '/overview' : '/login'} replace />
 }
 
+const PageFallback = () => (
+  <div className="flex items-center justify-center min-h-screen" style={{ background: 'var(--color-bg)' }}>
+    <Spinner />
+  </div>
+)
+
 export default function App() {
   return (
-    <Routes>
-      <Route path="/" element={<RootRedirect />} />
-      <Route path="/login" element={<Login />} />
-      <Route path="/verify-email" element={<VerifyEmail />} />
-      <Route path="/reset-password" element={<ResetPassword />} />
-      <Route
-        path="/overview"
-        element={
-          <ProtectedRoute>
-            <Overview />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/transactions"
-        element={
-          <ProtectedRoute>
-            <Transactions />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/ledger"
-        element={
-          <ProtectedRoute>
-            <Ledger />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/merchants"
-        element={
-          <ProtectedRoute>
-            <Merchants />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/categories"
-        element={
-          <ProtectedRoute>
-            <Categories />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/settings"
-        element={
-          <ProtectedRoute>
-            <Settings />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/canvas"
-        element={
-          <ProtectedRoute>
-            <Canvas />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/advisor"
-        element={
-          <ProtectedRoute>
-            <Advisor />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/tracker"
-        element={
-          <ProtectedRoute>
-            <Tracker />
-          </ProtectedRoute>
-        }
-      />
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <Suspense fallback={<PageFallback />}>
+      <Routes>
+        <Route path="/" element={<RootRedirect />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/verify-email" element={<VerifyEmail />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
+        <Route
+          path="/overview"
+          element={
+            <ProtectedRoute>
+              <Overview />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/transactions"
+          element={
+            <ProtectedRoute>
+              <Transactions />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/ledger"
+          element={
+            <ProtectedRoute>
+              <Ledger />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/merchants"
+          element={
+            <ProtectedRoute>
+              <Merchants />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/categories"
+          element={
+            <ProtectedRoute>
+              <Categories />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <ProtectedRoute>
+              <Settings />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/canvas"
+          element={
+            <ProtectedRoute>
+              <Canvas />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/advisor"
+          element={
+            <ProtectedRoute>
+              <Advisor />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/tracker"
+          element={
+            <ProtectedRoute>
+              <Tracker />
+            </ProtectedRoute>
+          }
+        />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </Suspense>
   )
 }

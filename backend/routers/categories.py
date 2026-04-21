@@ -46,12 +46,14 @@ def create_user_category(body: UserCategoryBody, current_user: dict = Depends(ge
         from fastapi import HTTPException
         raise HTTPException(status_code=422, detail="Category name cannot be empty")
     add_user_category(current_user["id"], name)
+    ins.invalidate_user_cache(current_user["id"])
     return {"ok": True}
 
 
 @router.delete("/user/{name}")
 def remove_user_category(name: str, current_user: dict = Depends(get_current_user)):
     delete_user_category(current_user["id"], unquote(name))
+    ins.invalidate_user_cache(current_user["id"])
     return {"ok": True}
 
 
@@ -67,12 +69,14 @@ def get_mappings(current_user: dict = Depends(get_current_user)):
 @router.post("/mappings")
 def post_mapping(body: MappingBody, current_user: dict = Depends(get_current_user)):
     upsert_category_mapping(current_user["id"], body.external_category, body.internal_category)
+    ins.invalidate_user_cache(current_user["id"])
     return {"ok": True}
 
 
 @router.delete("/mappings/{external_category}")
 def remove_mapping(external_category: str, current_user: dict = Depends(get_current_user)):
     delete_category_mapping(current_user["id"], unquote(external_category))
+    ins.invalidate_user_cache(current_user["id"])
     return {"ok": True}
 
 

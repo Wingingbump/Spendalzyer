@@ -1,4 +1,3 @@
-import json
 from typing import Optional
 
 import pandas as pd
@@ -29,9 +28,9 @@ def _safe(val):
 
 
 def _df_to_records(df: pd.DataFrame) -> list:
-    """Convert DataFrame to list of dicts, replacing NaN with None."""
-    records = json.loads(df.to_json(orient="records"))
-    # Normalize date objects to strings (already handled by to_json for most types)
+    """Convert DataFrame to list of dicts, replacing NaN/NaT with None."""
+    cleaned = df.where(pd.notna(df), None)
+    records = cleaned.to_dict(orient="records")
     for row in records:
         for k, v in row.items():
             if hasattr(v, "isoformat"):
@@ -391,4 +390,4 @@ def accounts(
         subset=["plaid_account_id"] if "plaid_account_id" in cols else cols
     )
     sub = sub.rename(columns={"account_name": "name", "account_mask": "mask"})
-    return json.loads(sub.to_json(orient="records"))
+    return _df_to_records(sub)

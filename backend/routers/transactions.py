@@ -86,6 +86,7 @@ def create_transaction(
         category=body.category,
         notes=body.notes,
     )
+    ins.invalidate_user_cache(current_user["id"])
     return {"ok": True, "id": tx_id}
 
 
@@ -101,6 +102,7 @@ def patch_transaction(
         amount=body.amount,
         notes=body.notes,
     )
+    ins.invalidate_user_cache(current_user["id"])
     return {"ok": True}
 
 
@@ -111,6 +113,7 @@ def dismiss_duplicate(
     current_user: dict = Depends(get_current_user),
 ):
     dismiss_duplicate_pair(current_user["id"], transaction_id, body.other_id)
+    ins.invalidate_user_cache(current_user["id"])
     return {"ok": True}
 
 
@@ -124,4 +127,5 @@ def delete_transaction_endpoint(
     deleted = delete_transaction(transaction_id, current_user["id"])
     if not deleted:
         raise HTTPException(status_code=404, detail="Transaction not found")
+    ins.invalidate_user_cache(current_user["id"])
     return {"ok": True}
