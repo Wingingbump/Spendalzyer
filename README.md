@@ -1,4 +1,4 @@
-# spend.
+# spendalyzer.
 
 A personal finance app that connects to your bank accounts via Plaid, categorizes your transactions with AI, and surfaces spending insights through an interactive dashboard.
 
