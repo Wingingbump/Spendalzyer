@@ -197,6 +197,9 @@ def health(current_user: dict = Depends(get_current_user)):
         status = "ok" if not warnings else ("error" if any(w["severity"] == "error" for w in warnings) else "warning")
         return {"status": status, "warnings": warnings}
 
+    # Work on a local copy — load_data() returns a cached DataFrame shared across
+    # requests, so mutating df["date"] in place would poison every other endpoint.
+    df = df.copy()
     df["date"] = pd.to_datetime(df["date"]).dt.date
 
     # ── 2. Transaction-based staleness (fallback / cross-check) ──────────────
