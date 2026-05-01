@@ -4,7 +4,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import logging
 import datetime
 from collections import defaultdict
-import time
 from dotenv import load_dotenv
 from rapidfuzz import fuzz
 from core.db import (upsert_transactions, fetch_transactions, load_category_map, seed_category_map,
@@ -13,7 +12,6 @@ import plaid
 from plaid.api import plaid_api
 from plaid.model.transactions_get_request import TransactionsGetRequest
 from plaid.model.transactions_get_request_options import TransactionsGetRequestOptions
-from plaid.model.transactions_refresh_request import TransactionsRefreshRequest
 
 logging.basicConfig(
     level=logging.INFO,
@@ -303,13 +301,6 @@ def main(user_id: int, full_sync: bool = False):
     for account in accounts:
         log.info(f"Pulling {account['name']}...")
         try:
-            try:
-                client.transactions_refresh(TransactionsRefreshRequest(access_token=account["access_token"]))
-                log.info(f"{account['name']}: refresh triggered, waiting 10s for Plaid to fetch from institution...")
-                time.sleep(10)
-            except plaid.ApiException as e:
-                log.warning(f"{account['name']}: refresh failed (non-fatal): {e.body}")
-
             transactions = fetch_all_transactions(client, account["access_token"], start_date, end_date)
 
             # ── Clean up stale pending transactions ──────────────────────────
