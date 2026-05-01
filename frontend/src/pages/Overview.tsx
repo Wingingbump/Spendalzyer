@@ -278,6 +278,7 @@ export default function Overview() {
   const chartColors = theme === 'dark' ? CHART_COLORS_DARK : CHART_COLORS_LIGHT
   const params = { range, institution, account }
   const INSIGHTS_STALE = 3 * 60_000
+  const [monthView, setMonthView] = useState<'this' | 'last'>('this')
 
   const { data: accounts = [], isLoading: loadingAccounts } = useQuery({
     queryKey: ['accounts'],
@@ -365,16 +366,24 @@ export default function Overview() {
       {/* Metric Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <MetricCard
-          label="This Month"
-          value={formatCurrency(summary?.this_month ?? 0)}
+          label={monthView === 'this' ? 'This Month' : 'Last Month'}
+          value={formatCurrency((monthView === 'this' ? summary?.this_month : summary?.last_month) ?? 0)}
           sub={
             summary
-              ? `${isPositiveDelta ? '↓' : '↑'} ${formatCurrency(Math.abs(delta))} vs last month (${Math.abs(deltaPct).toFixed(1)}%)`
+              ? monthView === 'this'
+                ? `${isPositiveDelta ? '↓' : '↑'} ${formatCurrency(Math.abs(delta))} vs last month (${Math.abs(deltaPct).toFixed(1)}%)`
+                : 'Final total for last month'
               : undefined
           }
-          subPositive={isPositiveDelta}
+          subPositive={monthView === 'this' ? isPositiveDelta : undefined}
           isLoading={loadingSummary}
           hero
+          tabs={[
+            { key: 'this', label: 'This Month' },
+            { key: 'last', label: 'Last Month' },
+          ]}
+          activeTab={monthView}
+          onTabChange={(k) => setMonthView(k as 'this' | 'last')}
         />
         <MetricCard
           label={`On Pace For · ${daysRemaining}d left`}
