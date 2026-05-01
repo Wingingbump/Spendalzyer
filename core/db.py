@@ -251,6 +251,25 @@ def _run_migrations():
             )
         """)
 
+        # User-marked recurring rules — bypass auto-detection thresholds
+        # amount_tolerance_abs and amount_tolerance_pct are OR'd: a transaction
+        # matches if |amount - amount_center| <= max(abs, center * pct/100)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_recurring_rules (
+                id                     SERIAL PRIMARY KEY,
+                user_id                INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                merchant_key           TEXT    NOT NULL,
+                amount_center          NUMERIC(12,2) NOT NULL,
+                amount_tolerance_abs   NUMERIC(12,2) NOT NULL DEFAULT 2.00,
+                amount_tolerance_pct   NUMERIC(5,2)  NOT NULL DEFAULT 15.00,
+                label                  TEXT,
+                frequency_hint         TEXT,
+                created_at             TIMESTAMPTZ DEFAULT NOW(),
+                updated_at             TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE (user_id, merchant_key)
+            )
+        """)
+
         # Plaid item health — cached result of /item/get per connected account
         conn.execute("""
             CREATE TABLE IF NOT EXISTS plaid_item_health (

@@ -1235,7 +1235,9 @@ def tracker(current_user: dict = Depends(get_current_user)):
             b["monthly_trend"] = []
 
     # ── Recurring ─────────────────────────────────────────────────────────────
-    recurring = _detect_recurring_simple(df)
+    # Use the workspace detector so user-marked recurring rules are honored.
+    from backend.routers.workspace import _detect_recurring, _fetch_user_rules
+    recurring = _detect_recurring(df, _fetch_user_rules(user_id))
 
     # ── Snapshots (last 6 months for health trend) ────────────────────────────
     snapshots = list_financial_snapshots(user_id, limit=6)

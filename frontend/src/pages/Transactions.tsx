@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useIsMobile } from '../hooks/useIsMobile'
-import { Search, Check, ChevronUp, ChevronDown, Plus, Trash2, X, Tag, AlertTriangle } from 'lucide-react'
+import { Search, Check, ChevronUp, ChevronDown, Plus, Trash2, X, Tag, AlertTriangle, Repeat } from 'lucide-react'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
 import { transactionsApi, categoriesApi, workspaceApi, merchantsApi } from '../lib/api'
 import type { Transaction } from '../lib/api'
@@ -99,6 +99,19 @@ export default function Transactions() {
       qc.invalidateQueries({ queryKey: ['summary'] })
       qc.invalidateQueries({ queryKey: ['monthly'] })
       qc.invalidateQueries({ queryKey: ['categories'] })
+    },
+  })
+
+  const [recurringToast, setRecurringToast] = useState<string | null>(null)
+
+  const markRecurringMutation = useMutation({
+    mutationFn: (transaction_id: string) => workspaceApi.markRecurringFromTransaction(transaction_id),
+    onSuccess: (data) => {
+      setRecurringToast(`Marked "${data.merchant_key}" as recurring`)
+      setTimeout(() => setRecurringToast(null), 2500)
+      qc.invalidateQueries({ queryKey: ['recurring'] })
+      qc.invalidateQueries({ queryKey: ['recurring-rules'] })
+      qc.invalidateQueries({ queryKey: ['tracker'] })
     },
   })
 
@@ -244,6 +257,20 @@ export default function Transactions() {
   return (
     <div className="space-y-4 fade-in" style={{ paddingBottom: drawerOpen ? 'calc(45vh + 56px)' : 56, transition: 'padding-bottom 0.25s ease' }}>
       <ActiveGroupBanner />
+
+      {recurringToast && (
+        <div
+          style={{
+            position: 'fixed', bottom: 80, left: '50%', transform: 'translateX(-50%)',
+            background: 'var(--color-surface-raise)', border: '1px solid var(--color-border)',
+            padding: '8px 14px', borderRadius: 8, fontSize: 13,
+            color: 'var(--color-text-primary)', zIndex: 60,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+          }}
+        >
+          {recurringToast}
+        </div>
+      )}
 
       {/* Add Transaction Modal */}
       {showAdd && (
@@ -571,14 +598,25 @@ export default function Transactions() {
                         )}
                       </td>
                       <td>
-                        <button
-                          onClick={() => setConfirmDelete(String(tx.id))}
-                          title="Delete transaction"
-                          className="delete-row-btn"
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: 2, opacity: 0, transition: 'opacity 0.15s', display: 'flex', alignItems: 'center' }}
-                        >
-                          <Trash2 size={12} />
-                        </button>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <button
+                            onClick={() => markRecurringMutation.mutate(String(tx.id))}
+                            disabled={markRecurringMutation.isPending}
+                            title="Mark as recurring"
+                            className="delete-row-btn"
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: 2, opacity: 0, transition: 'opacity 0.15s', display: 'flex', alignItems: 'center' }}
+                          >
+                            <Repeat size={12} />
+                          </button>
+                          <button
+                            onClick={() => setConfirmDelete(String(tx.id))}
+                            title="Delete transaction"
+                            className="delete-row-btn"
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: 2, opacity: 0, transition: 'opacity 0.15s', display: 'flex', alignItems: 'center' }}
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
                       </td>
                       {activeGroup && (() => {
                         const txId = String(tx.id)

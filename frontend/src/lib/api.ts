@@ -562,6 +562,18 @@ export interface RecurringTransaction {
   frequency: 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'annual'
   occurrences: number
   last_date: string
+  source?: 'auto' | 'manual'
+  rule_id?: number
+}
+
+export interface RecurringRule {
+  id: number
+  merchant_key: string
+  amount_center: number
+  amount_tolerance_abs: number
+  amount_tolerance_pct: number
+  label: string | null
+  frequency_hint: string | null
 }
 
 export interface GroupTransactionsResponse {
@@ -586,6 +598,30 @@ export const workspaceApi = {
 
   listRecurring: () =>
     api.get<RecurringTransaction[]>('/workspace/recurring').then((r) => r.data),
+
+  listRecurringRules: () =>
+    api.get<RecurringRule[]>('/workspace/recurring/rules').then((r) => r.data),
+
+  markRecurringFromTransaction: (transaction_id: string, label?: string, frequency_hint?: string) =>
+    api.post<{ id: number; merchant_key: string; amount_center: number }>(
+      '/workspace/recurring/rules/from-transaction',
+      { transaction_id, label, frequency_hint },
+    ).then((r) => r.data),
+
+  updateRecurringRule: (
+    id: number,
+    updates: Partial<{
+      amount_center: number
+      amount_tolerance_abs: number
+      amount_tolerance_pct: number
+      label: string | null
+      frequency_hint: string | null
+    }>,
+  ) =>
+    api.put<{ ok: boolean }>(`/workspace/recurring/rules/${id}`, updates).then((r) => r.data),
+
+  deleteRecurringRule: (id: number) =>
+    api.delete<{ ok: boolean }>(`/workspace/recurring/rules/${id}`).then((r) => r.data),
 
   createGroup: (name: string, color: string, goal?: number | null) =>
     api.post<{ id: number }>('/workspace/groups', { name, color, goal: goal ?? null }).then((r) => r.data),
@@ -685,6 +721,8 @@ export interface TrackerRecurring {
   name: string
   amount: number
   frequency: string
+  source?: 'auto' | 'manual'
+  rule_id?: number
 }
 
 export interface TrackerSnapshot {

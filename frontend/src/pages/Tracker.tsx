@@ -1,13 +1,13 @@
-import { useState } from 'react'
+import React, { useState } from 'react'
 import type { LucideIcon } from 'lucide-react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import {
   Target, Wallet, RefreshCw, TrendingUp, TrendingDown, Minus,
-  ChevronDown, ChevronUp, MessageSquare, Edit2, Check, X,
+  ChevronDown, ChevronUp, MessageSquare, Edit2, Check, X, Trash2,
 } from 'lucide-react'
-import { advisorApi } from '../lib/api'
-import type { TrackerGoal, TrackerBudget } from '../lib/api'
+import { advisorApi, workspaceApi } from '../lib/api'
+import type { TrackerGoal, TrackerBudget, RecurringRule } from '../lib/api'
 import { formatCurrency, formatMonth } from '../lib/utils'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -366,9 +366,27 @@ function BudgetCard({ budget }: { budget: TrackerBudget }) {
 function HealthTab({ data }: { data: NonNullable<ReturnType<typeof useTrackerData>['data']> }) {
   const { snapshots, recurring, summary } = data
   const navigate = useNavigate()
+  const qc = useQueryClient()
 
   const monthlyRecurringByCat = recurring.slice(0, 8)
   const totalRecurring = summary.total_recurring_monthly
+
+  const { data: rules = [] } = useQuery({
+    queryKey: ['recurring-rules'],
+    queryFn: () => workspaceApi.listRecurringRules(),
+    staleTime: 60_000,
+  })
+  const rulesById = new Map(rules.map((r) => [r.id, r]))
+
+  const [editingRule, setEditingRule] = useState<RecurringRule | null>(null)
+
+  const deleteRule = useMutation({
+    mutationFn: (id: number) => workspaceApi.deleteRecurringRule(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['recurring-rules'] })
+      qc.invalidateQueries({ queryKey: ['tracker'] })
+    },
+  })
 
   const latestRate = snapshots[0]?.savings_rate_pct
   const prevRate = snapshots[1]?.savings_rate_pct
@@ -433,15 +451,44 @@ function HealthTab({ data }: { data: NonNullable<ReturnType<typeof useTrackerDat
               {monthlyRecurringByCat.map((r, i) => {
                 const freqMultiplier: Record<string, number> = { weekly: 4.33, biweekly: 2.17, monthly: 1, quarterly: 1 / 3, annual: 1 / 12 }
                 const monthlyEq = r.amount * (freqMultiplier[r.frequency] ?? 1)
+                const rule = r.rule_id ? rulesById.get(r.rule_id) : undefined
                 return (
-                  <div key={i} className="flex items-center justify-between px-4 py-2.5">
-                    <div>
-                      <p style={{ fontSize: 13, color: 'var(--color-text-primary)' }}>{r.name}</p>
+                  <div key={i} className="flex items-center justify-between px-4 py-2.5 gap-3">
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div className="flex items-center gap-2">
+                        <p style={{ fontSize: 13, color: 'var(--color-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</p>
+                        {r.source === 'manual' && (
+                          <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', padding: '1px 5px', borderRadius: 3, background: 'var(--color-accent)', color: '#fff' }}>
+                            Manual
+                          </span>
+                        )}
+                      </div>
                       <p style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>{formatCurrency(r.amount)} · {r.frequency}</p>
                     </div>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-secondary)', fontFamily: 'monospace' }}>
-                      {formatCurrency(monthlyEq)}/mo
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-secondary)', fontFamily: 'monospace' }}>
+                        {formatCurrency(monthlyEq)}/mo
+                      </span>
+                      {rule && (
+                        <>
+                          <button
+                            onClick={() => setEditingRule(rule)}
+                            title="Edit rule"
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: 2, display: 'flex' }}
+                          >
+                            <Edit2 size={12} />
+                          </button>
+                          <button
+                            onClick={() => deleteRule.mutate(rule.id)}
+                            disabled={deleteRule.isPending}
+                            title="Remove rule"
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: 2, display: 'flex' }}
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
                 )
               })}
@@ -458,7 +505,131 @@ function HealthTab({ data }: { data: NonNullable<ReturnType<typeof useTrackerDat
           </div>
         </div>
       )}
+
+      {editingRule && (
+        <RecurringRuleEditModal
+          rule={editingRule}
+          onClose={() => setEditingRule(null)}
+        />
+      )}
     </div>
+  )
+}
+
+function RecurringRuleEditModal({ rule, onClose }: { rule: RecurringRule; onClose: () => void }) {
+  const qc = useQueryClient()
+  const [label, setLabel] = useState(rule.label ?? '')
+  const [center, setCenter] = useState(rule.amount_center.toString())
+  const [tolAbs, setTolAbs] = useState(rule.amount_tolerance_abs.toString())
+  const [tolPct, setTolPct] = useState(rule.amount_tolerance_pct.toString())
+  const [frequency, setFrequency] = useState(rule.frequency_hint ?? '')
+
+  const update = useMutation({
+    mutationFn: () => workspaceApi.updateRecurringRule(rule.id, {
+      label: label.trim() || null,
+      amount_center: parseFloat(center) || rule.amount_center,
+      amount_tolerance_abs: parseFloat(tolAbs) || 0,
+      amount_tolerance_pct: parseFloat(tolPct) || 0,
+      frequency_hint: frequency.trim() || null,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['recurring-rules'] })
+      qc.invalidateQueries({ queryKey: ['tracker'] })
+      onClose()
+    },
+  })
+
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      onClick={onClose}
+    >
+      <div
+        className="rounded-xl"
+        style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', padding: 20, width: 380, maxWidth: '90vw' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-3">
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-text-primary)' }}>Edit recurring rule</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: 4 }}>
+            <X size={16} />
+          </button>
+        </div>
+        <p style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 12 }}>
+          Merchant: <span style={{ color: 'var(--color-text-secondary)' }}>{rule.merchant_key}</span>
+        </p>
+
+        <div className="space-y-3">
+          <Field label="Label (optional)">
+            <input
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder={rule.merchant_key}
+              style={fieldStyle}
+            />
+          </Field>
+          <Field label="Expected amount">
+            <input type="number" step="0.01" value={center} onChange={(e) => setCenter(e.target.value)} style={fieldStyle} />
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="± dollars">
+              <input type="number" step="0.01" value={tolAbs} onChange={(e) => setTolAbs(e.target.value)} style={fieldStyle} />
+            </Field>
+            <Field label="± percent">
+              <input type="number" step="1" value={tolPct} onChange={(e) => setTolPct(e.target.value)} style={fieldStyle} />
+            </Field>
+          </div>
+          <p style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>
+            A charge matches if it's within either threshold (whichever is larger).
+          </p>
+          <Field label="Frequency hint (optional)">
+            <select value={frequency} onChange={(e) => setFrequency(e.target.value)} style={fieldStyle}>
+              <option value="">Auto-detect</option>
+              <option value="weekly">Weekly</option>
+              <option value="biweekly">Biweekly</option>
+              <option value="monthly">Monthly</option>
+              <option value="quarterly">Quarterly</option>
+              <option value="annual">Annual</option>
+            </select>
+          </Field>
+        </div>
+
+        <div className="flex justify-end gap-2 mt-5">
+          <button
+            onClick={onClose}
+            style={{ padding: '6px 14px', fontSize: 13, background: 'none', border: '1px solid var(--color-border)', borderRadius: 6, cursor: 'pointer', color: 'var(--color-text-secondary)' }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => update.mutate()}
+            disabled={update.isPending}
+            style={{ padding: '6px 14px', fontSize: 13, background: 'var(--color-accent)', border: 'none', borderRadius: 6, cursor: 'pointer', color: '#fff', opacity: update.isPending ? 0.6 : 1 }}
+          >
+            {update.isPending ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const fieldStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '6px 10px',
+  fontSize: 13,
+  background: 'var(--color-bg)',
+  border: '1px solid var(--color-border)',
+  borderRadius: 6,
+  color: 'var(--color-text-primary)',
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label style={{ display: 'block' }}>
+      <span style={{ fontSize: 11, color: 'var(--color-text-muted)', display: 'block', marginBottom: 4 }}>{label}</span>
+      {children}
+    </label>
   )
 }
 

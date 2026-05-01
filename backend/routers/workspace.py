@@ -102,7 +102,29 @@ FREQ_RANGES = [
 ]
 
 
-def _detect_recurring(df: pd.DataFrame) -> list:
+def _infer_frequency(diffs: list[int]) -> str | None:
+    if not diffs:
+        return None
+    sorted_diffs = sorted(diffs)
+    median_diff = sorted_diffs[len(sorted_diffs) // 2]
+    for label, lo, hi in FREQ_RANGES:
+        if lo <= median_diff <= hi:
+            return label
+    return None
+
+
+def _infer_frequency_loose(diffs: list[int]) -> str:
+    """Like _infer_frequency, but always returns a label by snapping to the closest bucket.
+    Used for user-marked rules where we trust the user's intent over interval cleanliness."""
+    if not diffs:
+        return "monthly"
+    sorted_diffs = sorted(diffs)
+    median_diff = sorted_diffs[len(sorted_diffs) // 2]
+    centers = [("weekly", 7), ("biweekly", 14), ("monthly", 30), ("quarterly", 91), ("annual", 365)]
+    return min(centers, key=lambda c: abs(c[1] - median_diff))[0]
+
+
+def _detect_recurring(df: pd.DataFrame, user_rules: list[dict] | None = None) -> list:
     clean = df[
         (~df["is_transfer"].fillna(False)) &
         (~df["is_duplicate"].fillna(False)) &
@@ -118,8 +140,13 @@ def _detect_recurring(df: pd.DataFrame) -> list:
         axis=1,
     )
 
+    user_rule_keys = {r["merchant_key"] for r in (user_rules or [])}
     results = []
+
+    # ── Auto-detection ────────────────────────────────────────────────────────
     for key, group in clean.groupby("_key"):
+        if key in user_rule_keys:
+            continue  # rule path will handle this merchant
         if len(group) < 2:
             continue
 
@@ -139,22 +166,14 @@ def _detect_recurring(df: pd.DataFrame) -> list:
             continue
 
         # Date interval analysis — use median interval, not average.
-        # Median is robust against one-off gaps (e.g. a skipped month that would
-        # inflate the average and push a monthly charge out of the 25–35 day window).
         dates = group["date"].tolist()
         diffs = [(dates[i + 1] - dates[i]).days for i in range(len(dates) - 1)]
-        sorted_diffs = sorted(diffs)
-        median_diff = sorted_diffs[len(sorted_diffs) // 2]
-
-        freq = None
-        for label, lo, hi in FREQ_RANGES:
-            if lo <= median_diff <= hi:
-                freq = label
-                break
+        freq = _infer_frequency(diffs)
         if freq is None:
             continue
 
-        # Intervals must be consistent (within 40% of median)
+        sorted_diffs = sorted(diffs)
+        median_diff = sorted_diffs[len(sorted_diffs) // 2]
         if len(diffs) > 1 and any(abs(d - median_diff) / median_diff > 0.4 for d in diffs):
             continue
 
@@ -164,18 +183,202 @@ def _detect_recurring(df: pd.DataFrame) -> list:
             "frequency": freq,
             "occurrences": len(group),
             "last_date": group["date"].max().date().isoformat(),
+            "source": "auto",
+        })
+
+    # ── User-rule matching ────────────────────────────────────────────────────
+    for rule in (user_rules or []):
+        center = float(rule["amount_center"])
+        tol = max(float(rule["amount_tolerance_abs"]), center * float(rule["amount_tolerance_pct"]) / 100.0)
+        group = clean[
+            (clean["_key"] == rule["merchant_key"]) &
+            ((clean["amount"] - center).abs() <= tol)
+        ]
+        if group.empty:
+            continue
+        group = group.sort_values("date")
+        dates = group["date"].tolist()
+        diffs = [(dates[i + 1] - dates[i]).days for i in range(len(dates) - 1)]
+        freq = rule.get("frequency_hint") or _infer_frequency_loose(diffs)
+        amounts = group["amount"].tolist()
+        sorted_amt = sorted(amounts)
+        median_amt = sorted_amt[len(sorted_amt) // 2]
+
+        results.append({
+            "name": rule.get("label") or str(rule["merchant_key"]),
+            "amount": round(float(median_amt), 2),
+            "frequency": freq,
+            "occurrences": len(group),
+            "last_date": group["date"].max().date().isoformat(),
+            "source": "manual",
+            "rule_id": rule["id"],
         })
 
     results.sort(key=lambda x: x["amount"], reverse=True)
     return results[:40]
 
 
+def _fetch_user_rules(user_id: int) -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT id, merchant_key, amount_center, amount_tolerance_abs,
+                   amount_tolerance_pct, label, frequency_hint
+            FROM user_recurring_rules
+            WHERE user_id = %s
+            ORDER BY id
+        """, (user_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
 @router.get("/recurring")
 def list_recurring(current_user: dict = Depends(get_current_user)):
-    df = ins.load_data(current_user["id"])
+    user_id = current_user["id"]
+    df = ins.load_data(user_id)
+    rules = _fetch_user_rules(user_id)
     if df.empty:
         return []
-    return _detect_recurring(df)
+    return _detect_recurring(df, rules)
+
+
+# ── User recurring rule CRUD ──────────────────────────────────────────────────
+
+class RecurringRuleBody(BaseModel):
+    merchant_key: str
+    amount_center: float
+    amount_tolerance_abs: Optional[float] = 2.00
+    amount_tolerance_pct: Optional[float] = 15.00
+    label: Optional[str] = None
+    frequency_hint: Optional[str] = None
+
+
+class RecurringRuleFromTransactionBody(BaseModel):
+    transaction_id: str
+    label: Optional[str] = None
+    frequency_hint: Optional[str] = None
+
+
+class RecurringRulePatchBody(BaseModel):
+    amount_center: Optional[float] = None
+    amount_tolerance_abs: Optional[float] = None
+    amount_tolerance_pct: Optional[float] = None
+    label: Optional[str] = None
+    frequency_hint: Optional[str] = None
+
+
+@router.get("/recurring/rules")
+def list_recurring_rules(current_user: dict = Depends(get_current_user)):
+    rules = _fetch_user_rules(current_user["id"])
+    return [
+        {
+            "id": r["id"],
+            "merchant_key": r["merchant_key"],
+            "amount_center": float(r["amount_center"]),
+            "amount_tolerance_abs": float(r["amount_tolerance_abs"]),
+            "amount_tolerance_pct": float(r["amount_tolerance_pct"]),
+            "label": r.get("label"),
+            "frequency_hint": r.get("frequency_hint"),
+        }
+        for r in rules
+    ]
+
+
+@router.post("/recurring/rules")
+def create_recurring_rule(body: RecurringRuleBody, current_user: dict = Depends(get_current_user)):
+    user_id = current_user["id"]
+    with get_conn() as conn:
+        row = conn.execute("""
+            INSERT INTO user_recurring_rules
+                (user_id, merchant_key, amount_center, amount_tolerance_abs,
+                 amount_tolerance_pct, label, frequency_hint)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (user_id, merchant_key)
+            DO UPDATE SET
+                amount_center = EXCLUDED.amount_center,
+                amount_tolerance_abs = EXCLUDED.amount_tolerance_abs,
+                amount_tolerance_pct = EXCLUDED.amount_tolerance_pct,
+                label = EXCLUDED.label,
+                frequency_hint = EXCLUDED.frequency_hint,
+                updated_at = NOW()
+            RETURNING id
+        """, (
+            user_id, body.merchant_key.strip(), body.amount_center,
+            body.amount_tolerance_abs or 2.00, body.amount_tolerance_pct or 15.00,
+            body.label, body.frequency_hint,
+        )).fetchone()
+    return {"id": row["id"]}
+
+
+@router.post("/recurring/rules/from-transaction")
+def create_rule_from_transaction(
+    body: RecurringRuleFromTransactionBody,
+    current_user: dict = Depends(get_current_user),
+):
+    user_id = current_user["id"]
+    df = ins.load_data(user_id)
+    if df.empty:
+        raise HTTPException(status_code=404, detail="No transactions found")
+    row = df[df["id"].astype(str) == str(body.transaction_id)]
+    if row.empty:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    tx = row.iloc[0]
+    merchant_key = (tx.get("merchant_normalized") or "").strip() or str(tx["name"])
+    amount = float(tx["amount"])
+    with get_conn() as conn:
+        result = conn.execute("""
+            INSERT INTO user_recurring_rules
+                (user_id, merchant_key, amount_center, label, frequency_hint)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (user_id, merchant_key)
+            DO UPDATE SET
+                amount_center = EXCLUDED.amount_center,
+                label = COALESCE(EXCLUDED.label, user_recurring_rules.label),
+                frequency_hint = COALESCE(EXCLUDED.frequency_hint, user_recurring_rules.frequency_hint),
+                updated_at = NOW()
+            RETURNING id
+        """, (user_id, merchant_key, amount, body.label, body.frequency_hint)).fetchone()
+    return {"id": result["id"], "merchant_key": merchant_key, "amount_center": amount}
+
+
+@router.put("/recurring/rules/{rule_id}")
+def update_recurring_rule(
+    rule_id: int,
+    body: RecurringRulePatchBody,
+    current_user: dict = Depends(get_current_user),
+):
+    user_id = current_user["id"]
+    fields = []
+    params: list = []
+    for col, val in [
+        ("amount_center", body.amount_center),
+        ("amount_tolerance_abs", body.amount_tolerance_abs),
+        ("amount_tolerance_pct", body.amount_tolerance_pct),
+        ("label", body.label),
+        ("frequency_hint", body.frequency_hint),
+    ]:
+        if val is not None:
+            fields.append(f"{col} = %s")
+            params.append(val)
+    if not fields:
+        return {"ok": True}
+    fields.append("updated_at = NOW()")
+    params.extend([rule_id, user_id])
+    with get_conn() as conn:
+        conn.execute(
+            f"UPDATE user_recurring_rules SET {', '.join(fields)} WHERE id = %s AND user_id = %s",
+            tuple(params),
+        )
+    return {"ok": True}
+
+
+@router.delete("/recurring/rules/{rule_id}")
+def delete_recurring_rule(rule_id: int, current_user: dict = Depends(get_current_user)):
+    user_id = current_user["id"]
+    with get_conn() as conn:
+        conn.execute(
+            "DELETE FROM user_recurring_rules WHERE id = %s AND user_id = %s",
+            (rule_id, user_id),
+        )
+    return {"ok": True}
 
 
 # ── Group models ──────────────────────────────────────────────────────────────
