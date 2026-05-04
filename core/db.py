@@ -1313,6 +1313,17 @@ def get_merchant_overrides(user_id: int) -> dict:
 def save_merchant_override(user_id: int, raw_name: str, display_name: str):
     with get_conn() as conn:
         conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
+        # If raw_name matches the display_name of an existing override, the caller
+        # is re-renaming an already-renamed merchant. Update the existing row so
+        # the original raw key keeps mapping forward, instead of inserting a new
+        # orphan override that never matches any real transaction.
+        result = conn.execute(
+            "UPDATE merchant_overrides SET display_name = %s, updated_at = NOW() "
+            "WHERE user_id = %s AND display_name = %s AND raw_name <> %s",
+            (display_name, user_id, raw_name, raw_name)
+        )
+        if result.rowcount > 0:
+            return
         conn.execute("""
             INSERT INTO merchant_overrides (user_id, raw_name, display_name, updated_at)
             VALUES (%s, %s, %s, NOW())

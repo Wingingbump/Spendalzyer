@@ -52,6 +52,7 @@ export default function Ledger() {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [merchantSuggestion, setMerchantSuggestion] = useState<{ merchant: string; category: string } | null>(null)
   const [applyDialog, setApplyDialog] = useState<{ merchant: string; category: string } | null>(null)
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const [expandedDup, setExpandedDup] = useState<number | null>(null)
   const qc = useQueryClient()
 
@@ -111,9 +112,15 @@ export default function Ledger() {
   const renameMerchantMutation = useMutation({
     mutationFn: ({ rawName, displayName }: { rawName: string; displayName: string }) =>
       merchantsApi.saveOverride(rawName, displayName),
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
+      setToast({ message: `Renamed merchant to "${vars.displayName}"`, type: 'success' })
+      setTimeout(() => setToast(null), 2500)
       qc.invalidateQueries({ queryKey: ['ledger'] })
       qc.invalidateQueries({ queryKey: ['merchants'] })
+    },
+    onError: () => {
+      setToast({ message: 'Failed to rename merchant', type: 'error' })
+      setTimeout(() => setToast(null), 2500)
     },
   })
 
@@ -213,6 +220,41 @@ export default function Ledger() {
 
   return (
     <div className="space-y-4 fade-in" style={{ paddingBottom: 56 }}>
+      {toast && (
+        <div
+          style={{
+            position: 'fixed', bottom: 80, left: '50%', transform: 'translateX(-50%)',
+            background: 'var(--color-surface-raise)', border: '1px solid var(--color-border)',
+            padding: '10px 16px', borderRadius: 8, fontSize: 13,
+            color: 'var(--color-text-primary)', zIndex: 60,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+            display: 'flex', alignItems: 'center', gap: 8,
+          }}
+        >
+          {toast.type === 'success' ? (
+            <span
+              style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                width: 18, height: 18, borderRadius: '50%',
+                background: 'var(--color-positive)', color: '#000', flexShrink: 0,
+              }}
+            >
+              <Check size={12} strokeWidth={3} />
+            </span>
+          ) : (
+            <span
+              style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                width: 18, height: 18, borderRadius: '50%',
+                background: 'var(--color-negative)', color: '#fff', flexShrink: 0,
+              }}
+            >
+              <X size={12} strokeWidth={3} />
+            </span>
+          )}
+          {toast.message}
+        </div>
+      )}
       {/* Add Transaction Modal */}
       {showAdd && (
         <div

@@ -102,13 +102,13 @@ export default function Transactions() {
     },
   })
 
-  const [recurringToast, setRecurringToast] = useState<string | null>(null)
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
 
   const markRecurringMutation = useMutation({
     mutationFn: (transaction_id: string) => workspaceApi.markRecurringFromTransaction(transaction_id),
     onSuccess: (data) => {
-      setRecurringToast(`Marked "${data.merchant_key}" as recurring`)
-      setTimeout(() => setRecurringToast(null), 2500)
+      setToast({ message: `Marked "${data.merchant_key}" as recurring`, type: 'success' })
+      setTimeout(() => setToast(null), 2500)
       qc.invalidateQueries({ queryKey: ['recurring'] })
       qc.invalidateQueries({ queryKey: ['recurring-rules'] })
       qc.invalidateQueries({ queryKey: ['tracker'] })
@@ -142,9 +142,15 @@ export default function Transactions() {
   const renameMerchantMutation = useMutation({
     mutationFn: ({ rawName, displayName }: { rawName: string; displayName: string }) =>
       merchantsApi.saveOverride(rawName, displayName),
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
+      setToast({ message: `Renamed merchant to "${vars.displayName}"`, type: 'success' })
+      setTimeout(() => setToast(null), 2500)
       qc.invalidateQueries({ queryKey: ['transactions'] })
       qc.invalidateQueries({ queryKey: ['merchants'] })
+    },
+    onError: () => {
+      setToast({ message: 'Failed to rename merchant', type: 'error' })
+      setTimeout(() => setToast(null), 2500)
     },
   })
 
@@ -258,17 +264,39 @@ export default function Transactions() {
     <div className="space-y-4 fade-in" style={{ paddingBottom: drawerOpen ? 'calc(45vh + 56px)' : 56, transition: 'padding-bottom 0.25s ease' }}>
       <ActiveGroupBanner />
 
-      {recurringToast && (
+      {toast && (
         <div
           style={{
             position: 'fixed', bottom: 80, left: '50%', transform: 'translateX(-50%)',
             background: 'var(--color-surface-raise)', border: '1px solid var(--color-border)',
-            padding: '8px 14px', borderRadius: 8, fontSize: 13,
+            padding: '10px 16px', borderRadius: 8, fontSize: 13,
             color: 'var(--color-text-primary)', zIndex: 60,
             boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+            display: 'flex', alignItems: 'center', gap: 8,
           }}
         >
-          {recurringToast}
+          {toast.type === 'success' ? (
+            <span
+              style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                width: 18, height: 18, borderRadius: '50%',
+                background: 'var(--color-positive)', color: '#000', flexShrink: 0,
+              }}
+            >
+              <Check size={12} strokeWidth={3} />
+            </span>
+          ) : (
+            <span
+              style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                width: 18, height: 18, borderRadius: '50%',
+                background: 'var(--color-negative)', color: '#fff', flexShrink: 0,
+              }}
+            >
+              <X size={12} strokeWidth={3} />
+            </span>
+          )}
+          {toast.message}
         </div>
       )}
 
