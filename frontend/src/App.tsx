@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import Layout from './components/Layout'
 import Spinner from './components/Spinner'
+import Welcome from './pages/Welcome'
 
 const Login = lazy(() => import('./pages/Login'))
 const VerifyEmail = lazy(() => import('./pages/VerifyEmail'))
@@ -41,11 +42,6 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <Layout>{children}</Layout>
 }
 
-function RootRedirect() {
-  const { user, isLoading } = useAuth()
-  if (isLoading) return null
-  return <Navigate to={user ? '/overview' : '/login'} replace />
-}
 
 const PageFallback = () => (
   <div className="flex items-center justify-center min-h-screen" style={{ background: 'var(--color-bg)' }}>
@@ -57,7 +53,8 @@ export default function App() {
   return (
     <Suspense fallback={<PageFallback />}>
       <Routes>
-        <Route path="/" element={<RootRedirect />} />
+        <Route path="/" element={<Welcome />} />
+        <Route path="/welcome" element={<Welcome />} />
         <Route path="/login" element={<Login />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
         <Route path="/reset-password" element={<ResetPassword />} />

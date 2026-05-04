@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { authApi } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
+import PasswordInput from '../components/PasswordInput'
 
 const loginSchema = z.object({
   username: z.string().min(1, 'Username is required'),
@@ -129,9 +130,11 @@ export default function Login() {
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="text-center mb-8">
-          <span style={{ fontSize: 36, fontWeight: 700, letterSpacing: '-0.03em', color: 'var(--color-text-primary)' }}>
-            spend<span style={{ color: 'var(--color-accent)' }}>.</span>
-          </span>
+          <Link to="/welcome" aria-label="Back to home" style={{ textDecoration: 'none', display: 'inline-block' }}>
+            <span style={{ fontSize: 36, fontWeight: 700, letterSpacing: '-0.03em', color: 'var(--color-text-primary)' }}>
+              spend<span style={{ color: 'var(--color-accent)' }}>.</span>
+            </span>
+          </Link>
           <p className="mt-2" style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>
             personal finance, your way
           </p>
@@ -176,7 +179,7 @@ export default function Login() {
                     Forgot password?
                   </button>
                 </div>
-                <input {...loginForm.register('password')} type="password" placeholder="••••••••" autoComplete="current-password" className="w-full" style={{ fontSize: 14 }} />
+                <PasswordInput registerProps={loginForm.register('password')} autoComplete="current-password" />
                 {loginForm.formState.errors.password && <p className="mt-1" style={{ fontSize: 11, color: 'var(--color-negative)' }}>{loginForm.formState.errors.password.message}</p>}
               </div>
               {serverError && <ErrorBox msg={serverError} />}
@@ -247,7 +250,7 @@ export default function Login() {
               </div>
               <div>
                 <label className="block mb-1.5" style={{ fontSize: 12, color: 'var(--color-text-secondary)', fontWeight: 500 }}>Password</label>
-                <input {...registerForm.register('password')} type="password" placeholder="••••••••" autoComplete="new-password" className="w-full" style={{ fontSize: 14 }} />
+                <PasswordInput registerProps={registerForm.register('password')} autoComplete="new-password" />
                 {registerForm.formState.errors.password && <p className="mt-1" style={{ fontSize: 11, color: 'var(--color-negative)' }}>{registerForm.formState.errors.password.message}</p>}
               </div>
               {serverError && <ErrorBox msg={serverError} />}

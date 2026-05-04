@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { authApi } from '../lib/api'
+import PasswordInput from '../components/PasswordInput'
 
 const schema = z.object({
   new_password: z.string().min(8, 'Password must be at least 8 characters'),
@@ -64,12 +65,12 @@ export default function ResetPassword() {
               <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
                 <div>
                   <label className="block mb-1.5" style={{ fontSize: 12, color: 'var(--color-text-secondary)', fontWeight: 500 }}>New password</label>
-                  <input {...register('new_password')} type="password" placeholder="••••••••" autoComplete="new-password" className="w-full" style={{ fontSize: 14 }} />
+                  <PasswordInput registerProps={register('new_password')} autoComplete="new-password" />
                   {errors.new_password && <p className="mt-1" style={{ fontSize: 11, color: 'var(--color-negative)' }}>{errors.new_password.message}</p>}
                 </div>
                 <div>
                   <label className="block mb-1.5" style={{ fontSize: 12, color: 'var(--color-text-secondary)', fontWeight: 500 }}>Confirm password</label>
-                  <input {...register('confirm_password')} type="password" placeholder="••••••••" autoComplete="new-password" className="w-full" style={{ fontSize: 14 }} />
+                  <PasswordInput registerProps={register('confirm_password')} autoComplete="new-password" />
                   {errors.confirm_password && <p className="mt-1" style={{ fontSize: 11, color: 'var(--color-negative)' }}>{errors.confirm_password.message}</p>}
                 </div>
 
