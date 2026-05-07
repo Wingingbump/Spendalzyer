@@ -990,6 +990,16 @@ def insert_manual_transaction(user_id: int, name: str, date: str, amount: float,
     return tx_id
 
 
+def transaction_belongs_to_user(transaction_id: str, user_id: int) -> bool:
+    with get_conn() as conn:
+        conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))
+        row = conn.execute(
+            "SELECT 1 FROM transactions WHERE id = %s AND user_id = %s",
+            (transaction_id, user_id)
+        ).fetchone()
+    return row is not None
+
+
 def delete_transaction(transaction_id: str, user_id: int) -> bool:
     with get_conn() as conn:
         conn.execute("SET LOCAL app.current_user_id = %s", (str(user_id),))

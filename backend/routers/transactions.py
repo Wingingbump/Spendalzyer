@@ -7,7 +7,10 @@ from pydantic import BaseModel
 from backend.dependencies import apply_filters, get_current_user
 from backend.limiter import limiter
 from core import insights as ins
-from core.db import delete_transaction, insert_manual_transaction, save_override, dismiss_duplicate_pair
+from core.db import (
+    delete_transaction, insert_manual_transaction, save_override,
+    dismiss_duplicate_pair, transaction_belongs_to_user,
+)
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
@@ -96,6 +99,8 @@ def patch_transaction(
     body: OverrideBody,
     current_user: dict = Depends(get_current_user),
 ):
+    if not transaction_belongs_to_user(transaction_id, current_user["id"]):
+        raise HTTPException(status_code=404, detail="Transaction not found")
     save_override(
         transaction_id,
         category=body.category,

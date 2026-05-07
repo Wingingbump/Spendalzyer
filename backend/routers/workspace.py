@@ -516,6 +516,12 @@ def add_transaction(group_id: int, body: AddTransactionBody, current_user: dict 
         ).fetchone()
         if not exists:
             raise HTTPException(status_code=404, detail="Group not found")
+        owns_tx = conn.execute(
+            "SELECT 1 FROM transactions WHERE id = %s AND user_id = %s",
+            (body.transaction_id, user_id)
+        ).fetchone()
+        if not owns_tx:
+            raise HTTPException(status_code=404, detail="Transaction not found")
         conn.execute("""
             INSERT INTO group_transactions (group_id, transaction_id)
             VALUES (%s, %s) ON CONFLICT DO NOTHING
